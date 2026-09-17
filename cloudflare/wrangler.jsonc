@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "funyaks-monitor",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-16",
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "funyaks-monitor",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "NOTIFICATION_QUEUE",
+        "queue": "funyaks-notifications"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "funyaks-notifications",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 8,
+        "dead_letter_queue": "funyaks-notifications-dlq"
+      }
+    ]
+  },
+  "vars": {
+    "BOOKING_URL": "https://book.dartriver.co.nz/activity/selection?filter=ProdGroup-DRAALL&workingDate=2027-02-02",
+    "TARGET_DATE": "2027-02-02",
+    "PARTY_SIZE": "1",
+    "FETCH_ATTEMPTS": "3",
+    "FETCH_TIMEOUT_MS": "15000",
+    "FAILURE_ALERT_THRESHOLD": "2",
+    "HEALTH_STALE_SECONDS": "180",
+    "RETENTION_DAYS": "14",
+    "PUSHPLUS_CHANNELS": "wechat"
+  }
+}

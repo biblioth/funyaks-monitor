@@ -1,0 +1,13 @@
+{
+  "name": "funyaks-monitor-worker",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "check": "WRANGLER_LOG_PATH=/tmp/funyaks-wrangler.log wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "wrangler": "4.132.0"
+  }
+}
