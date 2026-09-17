@@ -39,9 +39,12 @@ jobs:
           set +e
           if [[ -z "$HEALTH_URL" ]]; then
             echo "Cloudflare health URL is not configured."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "healthy=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+          echo "configured=true" >> "$GITHUB_OUTPUT"
 
           status="$(curl --silent --show-error --retry 2 --retry-all-errors \
             --connect-timeout 10 --max-time 30 --output health.json \
@@ -84,7 +87,7 @@ jobs:
           PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
 
       - name: Send deduplicated watchdog status notification
-        if: always()
+        if: always() && steps.cloudflare.outputs.configured == 'true'
         run: >-
           python3 watchdog_notify.py
           ${{ steps.cloudflare.outputs.healthy == 'true' && 'healthy' || 'unhealthy' }}
@@ -95,7 +98,7 @@ jobs:
           PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
 
       - name: Preserve unhealthy Cloudflare response
-        if: always() && steps.cloudflare.outputs.healthy != 'true'
+        if: always() && steps.cloudflare.outputs.configured == 'true' && steps.cloudflare.outputs.healthy != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: cloudflare-health-${{ github.run_id }}-${{ github.run_attempt }}
@@ -107,7 +110,7 @@ jobs:
           retention-days: 14
 
       - name: Fail when Cloudflare remains unhealthy
-        if: always() && steps.cloudflare.outputs.healthy != 'true'
+        if: always() && steps.cloudflare.outputs.configured == 'true' && steps.cloudflare.outputs.healthy != 'true'
         run: |
           echo "::error::Cloudflare monitor is unhealthy; the independent fallback check was used."
           exit 1

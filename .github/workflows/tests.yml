@@ -27,7 +27,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          # Node 24.13.0 ships the npm 11.6.x version used to create and
+          # validate this lockfile. Newer npm 11.19 currently rejects it with
+          # an incorrect `Invalid Version` error during `npm ci`.
+          node-version: "24.13.0"
           cache: npm
           cache-dependency-path: cloudflare/package-lock.json
       - run: npm ci
