@@ -2,6 +2,8 @@
 
 监控 Dart River Adventures 官网的 **2027-02-02 Funyaks，1 位**。
 
+生产 Worker：<https://funyaks-monitor.spicyao-lakewatch.workers.dev>
+
 当前生产设计以 Cloudflare 为主：
 
 ```text

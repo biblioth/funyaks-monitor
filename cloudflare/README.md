@@ -2,6 +2,8 @@
 
 这个 Worker 每分钟检查一次 Funyaks，D1 保存唯一状态，Cloudflare Queues 负责通知重试。GitHub Actions 每 5 分钟从 Cloudflare 外部检查 `/health`；Cron 漏跑时先调用 `/check` 自愈，仍失败才运行 Python 独立兜底。
 
+当前生产地址：<https://funyaks-monitor.spicyao-lakewatch.workers.dev>
+
 ## 1. 创建资源
 
 ```bash
@@ -13,7 +15,7 @@ npx wrangler queues create funyaks-notifications
 npx wrangler queues create funyaks-notifications-dlq
 ```
 
-把 `d1 create` 返回的真实 `database_id` 替换到 `wrangler.jsonc`，不要保留全零占位值。
+本仓库已经填写当前生产 D1 的 `database_id`。如果复制到其他 Cloudflare 账户部署，请改成新建数据库返回的 ID。
 
 初始化数据库：
 
