@@ -39,6 +39,8 @@ npx wrangler secret put PUSHPLUS_TOKEN
 npx wrangler secret put PUSHPLUS_TOPIC
 ```
 
+生产配置中的 `PUSHPLUS_CHANNELS` 为 `wechat,clawbot`，同一事件会分别投递到 PushPlus 微信和 Clawbot；飞书仍作为独立的第三条通知路径。
+
 `ADMIN_TOKEN` 请使用密码管理器生成的长随机字符串，不要提交到仓库。
 
 ## 3. 验证并部署
@@ -76,7 +78,7 @@ curl https://funyaks-monitor.<你的-workers-subdomain>.workers.dev/health
 | --- | --- |
 | `CLOUDFLARE_ADMIN_TOKEN` | 与 Worker 的 `ADMIN_TOKEN` 完全一致 |
 | `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET` | GitHub 独立兜底通知 |
-| `PUSHPLUS_TOKEN` / `PUSHPLUS_TOPIC` | 可选的 GitHub 独立兜底通知 |
+| `PUSHPLUS_TOKEN` / `PUSHPLUS_TOPIC` | GitHub 独立兜底的 PushPlus 微信与 Clawbot 通知 |
 
 然后手动运行 `Cloudflare watchdog and fallback`。正常时 GitHub 只读健康状态，不访问预订页；Cloudflare 不健康时才启动独立检查。
 

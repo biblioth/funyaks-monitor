@@ -42,6 +42,6 @@
     "FAILURE_ALERT_THRESHOLD": "2",
     "HEALTH_STALE_SECONDS": "180",
     "RETENTION_DAYS": "14",
-    "PUSHPLUS_CHANNELS": "wechat"
+    "PUSHPLUS_CHANNELS": "wechat,clawbot"
   }
 }

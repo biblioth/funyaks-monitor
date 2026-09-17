@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest.mock import patch
 import unittest
 
 import funyaks_monitor as monitor
@@ -77,6 +78,22 @@ class StateTests(unittest.TestCase):
             self.assertTrue(monitor.should_alert(state, monitor.parse_availability(
                 (FIXTURES / "available.html").read_text(encoding="utf-8")
             )))
+
+
+class NotificationTests(unittest.TestCase):
+    @patch("funyaks_monitor._post_json", return_value={"code": 200})
+    @patch.dict(
+        "os.environ",
+        {"PUSHPLUS_TOKEN": "token", "PUSHPLUS_CHANNELS": "wechat,wechat,clawbot"},
+        clear=True,
+    )
+    def test_pushplus_sends_wechat_and_clawbot_once_each(self, post_json):
+        delivered = monitor.send_notifications("test", title="Funyaks")
+        self.assertEqual(delivered, ["pushplus", "pushplus:clawbot"])
+        self.assertEqual(
+            [call.args[1]["channel"] for call in post_json.call_args_list],
+            ["wechat", "clawbot"],
+        )
 
 
 if __name__ == "__main__":

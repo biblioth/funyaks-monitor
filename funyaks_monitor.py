@@ -278,23 +278,34 @@ def send_notifications(message: str, title: str | None = None) -> list[str]:
 
     pushplus_token = os.getenv("PUSHPLUS_TOKEN", "").strip()
     if pushplus_token:
-        payload = {
-            "token": pushplus_token,
-            "title": (title or next((line.strip() for line in message.splitlines() if line.strip()), "Funyaks"))[:80],
-            "content": message,
-            "template": "txt",
-            "channel": os.getenv("PUSHPLUS_CHANNEL", "wechat").strip() or "wechat",
-        }
-        topic = os.getenv("PUSHPLUS_TOPIC", "").strip()
-        if topic:
-            payload["topic"] = topic
-        try:
-            response = _post_json("https://www.pushplus.plus/send", payload)
-            if response.get("code") not in (200, "200"):
-                raise MonitorError(f"PushPlus rejected notification: {response}")
-            delivered.append("pushplus")
-        except Exception as exc:
-            errors.append(f"pushplus: {exc}")
+        raw_channels = os.getenv(
+            "PUSHPLUS_CHANNELS",
+            os.getenv("PUSHPLUS_CHANNEL", "wechat"),
+        )
+        channels = list(dict.fromkeys(
+            channel.strip().lower()
+            for channel in raw_channels.split(",")
+            if channel.strip().lower() in {"wechat", "clawbot"}
+        )) or ["wechat"]
+        for channel in channels:
+            payload = {
+                "token": pushplus_token,
+                "title": (title or next((line.strip() for line in message.splitlines() if line.strip()), "Funyaks"))[:80],
+                "content": message,
+                "template": "txt",
+                "channel": channel,
+            }
+            topic = os.getenv("PUSHPLUS_TOPIC", "").strip()
+            if topic:
+                payload["topic"] = topic
+            delivery_name = "pushplus" if channel == "wechat" else f"pushplus:{channel}"
+            try:
+                response = _post_json("https://www.pushplus.plus/send", payload)
+                if response.get("code") not in (200, "200"):
+                    raise MonitorError(f"PushPlus rejected notification: {response}")
+                delivered.append(delivery_name)
+            except Exception as exc:
+                errors.append(f"{delivery_name}: {exc}")
 
     if errors and not delivered:
         raise MonitorError("All configured notification channels failed: " + "; ".join(errors))

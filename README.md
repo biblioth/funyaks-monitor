@@ -11,7 +11,7 @@ Cloudflare Cron（每分钟）
   → 官网 HTML 重试检查
   → D1 唯一状态与去重
   → Cloudflare Queues
-  → 飞书 / PushPlus
+  → 飞书 / PushPlus 微信 / PushPlus Clawbot
 
 GitHub Actions（每 5 分钟，外部看门狗）
   → /health
@@ -31,11 +31,11 @@ GitHub Actions（每 5 分钟，外部看门狗）
 - D1 保存房态、连续失败次数、运行历史和每个通知渠道的投递状态；
 - 第一次运行已经有位时立即提醒；持续有位不重复轰炸，重新售罄后再放位会再次提醒；
 - 连续 2 个周期失败（共尝试 6 次官网请求）即发送“监控异常”，恢复后发送“监控已恢复”；
-- 飞书与 PushPlus 分渠道投递，Cloudflare Queues 失败重试并保留死信；
+- 飞书、PushPlus 微信与 PushPlus Clawbot 分渠道投递，单个渠道失败不会阻塞其他渠道，Cloudflare Queues 负责重试并保留死信；
 - `/health` 对调度停止、官网连续失败、通知未配置或通知积压返回 HTTP 503；
 - GitHub 从 Cloudflare 外部做健康检查，在异常时运行独立兜底，并通过同一通知渠道发送一次去重后的异常/恢复消息。
 
-这能显著降低静默漏检概率，但任何公网服务、目标网站和通知平台都无法提供绝对零失败保证。对这次行程，建议同时配置飞书和 PushPlus 两个通知渠道。
+当前生产环境已经启用飞书、PushPlus 微信和 PushPlus Clawbot 三条通知路径。这能显著降低静默漏检概率，但任何公网服务、目标网站和通知平台都无法提供绝对零失败保证。
 
 ## 部署
 

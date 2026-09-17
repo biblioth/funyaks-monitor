@@ -85,6 +85,7 @@ jobs:
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
+          PUSHPLUS_CHANNELS: wechat,clawbot
 
       - name: Send deduplicated watchdog status notification
         if: always() && steps.cloudflare.outputs.configured == 'true'
@@ -96,6 +97,7 @@ jobs:
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
+          PUSHPLUS_CHANNELS: wechat,clawbot
 
       - name: Preserve unhealthy Cloudflare response
         if: always() && steps.cloudflare.outputs.configured == 'true' && steps.cloudflare.outputs.healthy != 'true'
