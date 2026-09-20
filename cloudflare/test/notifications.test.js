@@ -34,3 +34,31 @@ test("notification channels are independent and deduplicated", () => {
     ["feishu", "pushplus", "pushplus:clawbot"],
   );
 });
+
+test("weekly summary renders reliability and availability metrics", () => {
+  const rendered = renderEvent({
+    type: "weekly_summary",
+    payload: {
+      periodStart: "2026-09-13T02:00:00.000Z",
+      periodEnd: "2026-09-20T02:00:00.000Z",
+      targetDate: "2027-02-02",
+      partySize: 1,
+      currentStatus: "unavailable",
+      totalChecks: 10080,
+      successfulChecks: 10079,
+      failedChecks: 1,
+      successRate: "99.99",
+      availableChecks: 0,
+      unavailableChecks: 10079,
+      averageDurationMs: 820,
+      maxDurationMs: 4800,
+      availabilityEvents: 0,
+      degradedEvents: 1,
+      recoveredEvents: 1,
+      lastCheckedAt: "2026-09-20T01:59:00.000Z",
+    },
+  });
+  assert.match(rendered.message, /本周检查：10080 次/);
+  assert.match(rendered.message, /成功率 99\.99%/);
+  assert.match(rendered.message, /当前房态：无位/);
+});

@@ -58,6 +58,27 @@ export function renderEvent(event) {
       ].join("\n"),
     };
   }
+  if (event.type === "weekly_summary") {
+    const currentStatus = {
+      available: "有位",
+      unavailable: "无位",
+      error: "检查异常",
+    }[payload.currentStatus] || "未知";
+    return {
+      title: "📊 Funyaks 监控周报",
+      message: [
+        "📊 Funyaks 监控周报",
+        `周期：${payload.periodStart?.slice(0, 10)} ～ ${payload.periodEnd?.slice(0, 10)}（北京时间）`,
+        `目标：${payload.targetDate} Funyaks，${payload.partySize || 1} 位`,
+        `当前房态：${currentStatus}`,
+        `本周检查：${payload.totalChecks || 0} 次｜成功 ${payload.successfulChecks || 0}｜异常 ${payload.failedChecks || 0}｜成功率 ${payload.successRate || "0.00"}%`,
+        `检测结果：有位 ${payload.availableChecks || 0} 次｜无位 ${payload.unavailableChecks || 0} 次`,
+        `响应耗时：平均 ${payload.averageDurationMs || 0} ms｜最大 ${payload.maxDurationMs || 0} ms`,
+        `事件：放位提醒 ${payload.availabilityEvents || 0}｜监控异常 ${payload.degradedEvents || 0}｜恢复 ${payload.recoveredEvents || 0}`,
+        `最后检查：${payload.lastCheckedAt || "暂无"}`,
+      ].join("\n"),
+    };
+  }
   throw new Error(`Unsupported event type: ${event.type}`);
 }
 

@@ -121,7 +121,7 @@ async function saveState(db, state) {
     .run();
 }
 
-async function createEvent(db, event, createdAt, channels) {
+export async function createEvent(db, event, createdAt, channels) {
   const inserted = await db
     .prepare(
       `INSERT OR IGNORE INTO monitor_events(idempotency_key, event_type, payload_json, created_at)
@@ -129,12 +129,11 @@ async function createEvent(db, event, createdAt, channels) {
     )
     .bind(event.key, event.type, JSON.stringify(event.payload), createdAt)
     .run();
-  if (!inserted.meta?.changes) return null;
-
   const row = await db
     .prepare("SELECT id FROM monitor_events WHERE idempotency_key=?")
     .bind(event.key)
     .first();
+  if (!row) return null;
   for (const channel of channels) {
     await db
       .prepare(
@@ -145,7 +144,7 @@ async function createEvent(db, event, createdAt, channels) {
       .bind(row.id, channel, createdAt, createdAt)
       .run();
   }
-  return row.id;
+  return inserted.meta?.changes ? row.id : null;
 }
 
 export async function recordOutcome(

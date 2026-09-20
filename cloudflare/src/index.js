@@ -2,6 +2,7 @@ import { parseFunyaksAvailability } from "./parser.js";
 import { configuredChannels, sendEvent } from "./notifications.js";
 import {
   cleanup,
+  createEvent,
   getDelivery,
   getState,
   markDelivered,
@@ -77,6 +78,78 @@ export async function enqueuePending(env) {
   return count;
 }
 
+export function weeklySummaryDue(date, utcHour = 2) {
+  return date.getUTCDay() === 0 && date.getUTCHours() === Number(utcHour);
+}
+
+export async function recordWeeklySummary(env, periodEnd = new Date()) {
+  const periodEndIso = periodEnd.toISOString();
+  const periodStartIso = new Date(periodEnd.getTime() - 7 * 86_400_000).toISOString();
+  const key = `weekly_summary:${periodEndIso.slice(0, 10)}`;
+  const existing = await env.DB
+    .prepare("SELECT id FROM monitor_events WHERE idempotency_key=?")
+    .bind(key)
+    .first();
+  if (existing) return { eventId: null, duplicate: true, key };
+
+  const [checks, events, state] = await Promise.all([
+    env.DB
+      .prepare(
+        `SELECT
+           COUNT(*) AS total_checks,
+           SUM(CASE WHEN status != 'error' THEN 1 ELSE 0 END) AS successful_checks,
+           SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS failed_checks,
+           SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END) AS available_checks,
+           SUM(CASE WHEN status = 'unavailable' THEN 1 ELSE 0 END) AS unavailable_checks,
+           ROUND(AVG(duration_ms)) AS average_duration_ms,
+           MAX(duration_ms) AS max_duration_ms
+         FROM monitor_checks
+         WHERE trigger = 'scheduled' AND scheduled_at >= ? AND scheduled_at < ?`,
+      )
+      .bind(periodStartIso, periodEndIso)
+      .first(),
+    env.DB
+      .prepare(
+        `SELECT
+           SUM(CASE WHEN event_type = 'availability' THEN 1 ELSE 0 END) AS availability_events,
+           SUM(CASE WHEN event_type = 'monitor_degraded' THEN 1 ELSE 0 END) AS degraded_events,
+           SUM(CASE WHEN event_type = 'monitor_recovered' THEN 1 ELSE 0 END) AS recovered_events
+         FROM monitor_events WHERE created_at >= ? AND created_at < ?`,
+      )
+      .bind(periodStartIso, periodEndIso)
+      .first(),
+    getState(env.DB),
+  ]);
+  const totalChecks = Number(checks?.total_checks || 0);
+  const successfulChecks = Number(checks?.successful_checks || 0);
+  const payload = {
+    periodStart: periodStartIso,
+    periodEnd: periodEndIso,
+    targetDate: env.TARGET_DATE || "2027-02-02",
+    partySize: integer(env.PARTY_SIZE, 1),
+    totalChecks,
+    successfulChecks,
+    failedChecks: Number(checks?.failed_checks || 0),
+    successRate: totalChecks ? ((successfulChecks / totalChecks) * 100).toFixed(2) : "0.00",
+    availableChecks: Number(checks?.available_checks || 0),
+    unavailableChecks: Number(checks?.unavailable_checks || 0),
+    averageDurationMs: Number(checks?.average_duration_ms || 0),
+    maxDurationMs: Number(checks?.max_duration_ms || 0),
+    availabilityEvents: Number(events?.availability_events || 0),
+    degradedEvents: Number(events?.degraded_events || 0),
+    recoveredEvents: Number(events?.recovered_events || 0),
+    currentStatus: state?.current_status || "unknown",
+    lastCheckedAt: state?.last_checked_at || null,
+  };
+  const eventId = await createEvent(
+    env.DB,
+    { key, type: "weekly_summary", payload },
+    periodEndIso,
+    configuredChannels(env),
+  );
+  return { eventId, duplicate: !eventId, key, payload };
+}
+
 export async function runCycle(
   env,
   { scheduledAt = new Date(), trigger = "scheduled", fetcher = fetch, sleeper = sleep } = {},
@@ -119,6 +192,13 @@ export async function runCycle(
     durationMs: Date.now() - startedClock,
     failureThreshold: integer(env.FAILURE_ALERT_THRESHOLD, 2),
   });
+  let weekly = null;
+  if (trigger === "scheduled" && weeklySummaryDue(
+    scheduledAt,
+    integer(env.WEEKLY_REPORT_UTC_HOUR, 2),
+  )) {
+    weekly = await recordWeeklySummary(env, scheduledAt);
+  }
   const queued = await enqueuePending(env);
 
   const retentionDays = Math.max(1, integer(env.RETENTION_DAYS, 14));
@@ -133,6 +213,7 @@ export async function runCycle(
     departures: outcome.departures,
     error: outcome.error || null,
     eventIds: recorded.eventIds,
+    weekly,
     queued,
   };
 }
@@ -246,6 +327,12 @@ export default {
     if (request.method === "POST" && url.pathname === "/check") {
       if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
       return Response.json(await runCycle(env, { trigger: "manual" }));
+    }
+    if (request.method === "POST" && url.pathname === "/weekly-report") {
+      if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
+      const report = await recordWeeklySummary(env, new Date());
+      const queued = await enqueuePending(env);
+      return Response.json({ ...report, queued });
     }
     if (request.method === "GET" && url.pathname === "/status") {
       if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });

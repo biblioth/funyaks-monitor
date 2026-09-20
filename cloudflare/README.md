@@ -41,6 +41,16 @@ npx wrangler secret put PUSHPLUS_TOPIC
 
 生产配置中的 `PUSHPLUS_CHANNELS` 为 `wechat,clawbot`，同一事件会分别投递到 PushPlus 微信和 Clawbot；飞书仍作为独立的第三条通知路径。
 
+## 每周周报
+
+每周日北京时间 10:00（UTC 02:00）发送过去 7 天的监控周报。每分钟 Cron 在 10 点这一小时内都会检查周报是否已创建，D1 的 `weekly_summary:YYYY-MM-DD` 幂等键确保只发送一次。GitHub 的 `Weekly monitor report` 工作流会在 10:10 调用 `/weekly-report` 作为跨平台兜底。
+
+GitHub 仓库还需要配置变量：
+
+| 名称 | 值 |
+| --- | --- |
+| `CLOUDFLARE_WEEKLY_REPORT_URL` | `https://...workers.dev/weekly-report` |
+
 `ADMIN_TOKEN` 请使用密码管理器生成的长随机字符串，不要提交到仓库。
 
 ## 3. 验证并部署
