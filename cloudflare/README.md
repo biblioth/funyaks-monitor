@@ -1,6 +1,6 @@
 # Cloudflare 主监控部署
 
-这个 Worker 每分钟检查一次 Funyaks，D1 保存唯一状态，Cloudflare Queues 负责通知重试。GitHub Actions 每 5 分钟从 Cloudflare 外部检查 `/health`；Cron 漏跑时先调用 `/check` 自愈，仍失败才运行 Python 独立兜底。
+这个 Worker 每分钟并行检查 Funyaks 与香港大班楼（The Chairman）。D1 分别保存两个监控的状态，Cloudflare Queues 统一负责飞书和 PushPlus 通知重试。GitHub Actions 每 5 分钟从 Cloudflare 外部检查 Funyaks `/health`；Cron 漏跑时先调用 `/check` 自愈，仍失败才运行 Python 独立兜底。
 
 当前生产地址：<https://funyaks-monitor.spicyao-lakewatch.workers.dev>
 
@@ -69,6 +69,13 @@ curl -X POST \
   https://funyaks-monitor.<你的-workers-subdomain>.workers.dev/check
 
 curl https://funyaks-monitor.<你的-workers-subdomain>.workers.dev/health
+
+# 大班楼：2026-10-30、10-31、11-01，2 位，午晚餐均可
+curl -X POST \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  https://funyaks-monitor.<你的-workers-subdomain>.workers.dev/chairman/check
+
+curl https://funyaks-monitor.<你的-workers-subdomain>.workers.dev/chairman/health
 ```
 
 健康接口应返回 HTTP 200 且 `ok: true`。如果通知尚未配置，它会故意返回 HTTP 503。
@@ -107,6 +114,8 @@ curl https://funyaks-monitor.<你的-workers-subdomain>.workers.dev/health
 - 通知在队列中积压超过 15 分钟。
 
 Queues 对失败通知最多重试 8 次，之后进入死信队列；D1 中未完成的投递还会保留，后续周期会再次入队，不会把一次发送失败当成已通知。
+
+`/chairman/health` 单独展示大班楼的调度、官网状态、目标日期及最近解析结果。官网 `Server Busy` / HTTP 429 属于预期限流状态：调度仍为健康，但 `sourceStatus` 会显示 `busy`。只有拿到 200 页面却无法识别页面结构等真正异常连续发生 3 次时，才发送“大班楼监控异常”。
 
 ## 免费版与高可靠性
 

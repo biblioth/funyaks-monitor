@@ -25,6 +25,48 @@ function truncate(value, length = 700) {
 
 export function renderEvent(event) {
   const payload = event.payload || {};
+  if (event.type === "chairman_availability") {
+    const mealName = { lunch: "午餐", dinner: "晚餐" };
+    const lines = [
+      `🎉 大班楼有位置了（${payload.partySize || 2} 位）`,
+    ];
+    const dateLevelDates = new Set(
+      (payload.available || []).filter((slot) => slot.dateLevel).map((slot) => slot.date),
+    );
+    for (const date of dateLevelDates) {
+      lines.push(`日期：${date}｜午餐或晚餐至少一个时段可选`);
+    }
+    for (const slot of (payload.available || []).filter((item) => !dateLevelDates.has(item.date))) {
+      const times = slot.times?.length ? `｜时间：${slot.times.join("、")}` : "";
+      lines.push(`日期：${slot.date}｜${mealName[slot.mealWindow] || slot.mealWindow}${times}`);
+    }
+    if (payload.sourceUrl) lines.push(`立即预订：${payload.sourceUrl}`);
+    lines.push("座位随时可能被订走，请以官网最终结果为准。");
+    return { title: "🎉 大班楼有位置了", message: lines.join("\n") };
+  }
+  if (event.type === "chairman_monitor_degraded") {
+    return {
+      title: "🚨 大班楼监控异常",
+      message: [
+        "🚨 大班楼监控连续无法确认房态",
+        `连续失败：${payload.consecutiveFailures || "多"} 次`,
+        `最后错误：${truncate(payload.error)}`,
+        payload.pageTitle ? `页面标题：${payload.pageTitle}` : null,
+        payload.pageFingerprint ? `页面指纹：${payload.pageFingerprint}` : null,
+        "限流页（Server Busy / HTTP 429）不会触发此异常提醒。",
+      ].filter(Boolean).join("\n"),
+    };
+  }
+  if (event.type === "chairman_monitor_recovered") {
+    return {
+      title: "✅ 大班楼监控已恢复",
+      message: [
+        "✅ 大班楼监控已恢复",
+        `此前连续失败：${payload.previousFailures || 0} 次`,
+        `当前状态：${payload.currentStatus === "available" ? "有位" : "暂无明确余位"}`,
+      ].join("\n"),
+    };
+  }
   if (event.type === "availability") {
     const lines = [
       `🎉 Funyaks 有位置了（${payload.partySize || 1} 位）`,

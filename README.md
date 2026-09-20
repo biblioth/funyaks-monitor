@@ -1,6 +1,9 @@
-# Funyaks 放位监控
+# Funyaks + 大班楼放位监控
 
-监控 Dart River Adventures 官网的 **2027-02-02 Funyaks，1 位**。
+同一个 Cloudflare Worker 监控：
+
+- Dart River Adventures 官网的 **2027-02-02 Funyaks，1 位**；
+- 香港大班楼（The Chairman）官网的 **2026-10-30、10-31、11-01，2 位，午餐或晚餐**。
 
 生产 Worker：<https://funyaks-monitor.spicyao-lakewatch.workers.dev>
 
@@ -8,7 +11,8 @@
 
 ```text
 Cloudflare Cron（每分钟）
-  → 官网 HTML 重试检查
+  → Funyaks 官网 HTML 重试检查
+  → 大班楼 Queue-it 通行令牌 → 官方订位页检查
   → D1 唯一状态与去重
   → Cloudflare Queues
   → 飞书 / PushPlus 微信 / PushPlus Clawbot
@@ -25,9 +29,12 @@ GitHub Actions（每 5 分钟，外部看门狗）
 
 监控精确匹配 Funyaks 和目标日期，不会把同页 Wilderness Jet 的余位误报。页面结构改变、超时或返回陌生格式时会记录为错误，不会伪装成“无位”。
 
+大班楼监控每分钟通过官方 Queue-it 入口获取一次新的通行令牌，再访问官方订位页。官网当前可能返回 `Server Busy` / HTTP 429；这种情况只记录为源站繁忙，不会误报有位，也不会反复发送异常通知。只有目标日期附近出现明确可点击的日期或午/晚餐时段时才发送提醒。
+
 ## 可靠性策略
 
 - Cloudflare 每分钟检查，单次最多请求 3 次；
+- 大班楼每分钟只走一次 Queue-it + 官网请求，避免给持续限流的源站增加额外压力；
 - D1 保存房态、连续失败次数、运行历史和每个通知渠道的投递状态；
 - 第一次运行已经有位时立即提醒；持续有位不重复轰炸，重新售罄后再放位会再次提醒；
 - 连续 2 个周期失败（共尝试 6 次官网请求）即发送“监控异常”，恢复后发送“监控已恢复”；

@@ -24,6 +24,27 @@ test("availability notification contains the direct booking link", () => {
   assert.match(rendered.message, /https:\/\/example\.com\/book/);
 });
 
+test("Chairman notification contains target date, meal and official queue link", () => {
+  const rendered = renderEvent({
+    type: "chairman_availability",
+    payload: {
+      partySize: 2,
+      sourceUrl: "https://thechairmangroup.queue-it.net/?c=thechairmangroup&e=chairmanwaitingrmsys",
+      available: [{
+        date: "2026-10-30",
+        mealWindow: "lunch",
+        times: ["12:30"],
+        dateLevel: false,
+      }],
+    },
+  });
+  assert.match(rendered.title, /大班楼/);
+  assert.match(rendered.message, /2026-10-30/);
+  assert.match(rendered.message, /午餐/);
+  assert.match(rendered.message, /12:30/);
+  assert.match(rendered.message, /queue-it\.net/);
+});
+
 test("notification channels are independent and deduplicated", () => {
   assert.deepEqual(
     configuredChannels({

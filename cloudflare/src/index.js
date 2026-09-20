@@ -1,6 +1,11 @@
 import { parseFunyaksAvailability } from "./parser.js";
 import { configuredChannels, sendEvent } from "./notifications.js";
 import {
+  chairmanHealthResponse,
+  getChairmanState,
+  runChairmanCycle,
+} from "./chairman.js";
+import {
   cleanup,
   createEvent,
   getDelivery,
@@ -310,23 +315,49 @@ async function processQueue(batch, env) {
 
 export default {
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(runCycle(env, { scheduledAt: new Date(controller.scheduledTime) }));
+    const scheduledAt = new Date(controller.scheduledTime);
+    ctx.waitUntil((async () => {
+      await Promise.allSettled([
+        runCycle(env, { scheduledAt }),
+        runChairmanCycle(env, { scheduledAt }),
+      ]);
+      await enqueuePending(env);
+    })());
   },
 
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") return healthResponse(env);
+    if (request.method === "GET" && url.pathname === "/chairman/health") {
+      return chairmanHealthResponse(env);
+    }
     if (request.method === "GET" && url.pathname === "/") {
       return Response.json({
-        service: "Funyaks availability monitor",
-        targetDate: env.TARGET_DATE || "2027-02-02",
-        partySize: integer(env.PARTY_SIZE, 1),
-        health: "/health",
+        service: "Funyaks and The Chairman availability monitor",
+        monitors: {
+          funyaks: {
+            targetDate: env.TARGET_DATE || "2027-02-02",
+            partySize: integer(env.PARTY_SIZE, 1),
+            health: "/health",
+          },
+          chairman: {
+            targetDates: String(env.CHAIRMAN_TARGET_DATES || "2026-10-30,2026-10-31,2026-11-01").split(","),
+            partySize: integer(env.CHAIRMAN_PARTY_SIZE, 2),
+            mealWindows: String(env.CHAIRMAN_MEAL_WINDOWS || "lunch,dinner").split(","),
+            health: "/chairman/health",
+          },
+        },
       });
     }
     if (request.method === "POST" && url.pathname === "/check") {
       if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
       return Response.json(await runCycle(env, { trigger: "manual" }));
+    }
+    if (request.method === "POST" && url.pathname === "/chairman/check") {
+      if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
+      const result = await runChairmanCycle(env, { trigger: "manual" });
+      const queued = await enqueuePending(env);
+      return Response.json({ ...result, queued });
     }
     if (request.method === "POST" && url.pathname === "/weekly-report") {
       if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
@@ -336,7 +367,11 @@ export default {
     }
     if (request.method === "GET" && url.pathname === "/status") {
       if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
-      return Response.json({ state: await getState(env.DB), channels: configuredChannels(env) });
+      return Response.json({
+        funyaks: await getState(env.DB),
+        chairman: await getChairmanState(env.DB),
+        channels: configuredChannels(env),
+      });
     }
     return new Response("Not found", { status: 404 });
   },

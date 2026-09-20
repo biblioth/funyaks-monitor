@@ -43,6 +43,14 @@
     "HEALTH_STALE_SECONDS": "180",
     "RETENTION_DAYS": "14",
     "WEEKLY_REPORT_UTC_HOUR": "2",
-    "PUSHPLUS_CHANNELS": "wechat,clawbot"
+    "PUSHPLUS_CHANNELS": "wechat,clawbot",
+    "CHAIRMAN_ENABLED": "true",
+    "CHAIRMAN_QUEUE_URL": "https://thechairmangroup.queue-it.net/?c=thechairmangroup&e=chairmanwaitingrmsys",
+    "CHAIRMAN_BOOKING_URL": "https://www.thechairmangroup.com/index.php?route=catering/booking",
+    "CHAIRMAN_TARGET_DATES": "2026-10-30,2026-10-31,2026-11-01",
+    "CHAIRMAN_PARTY_SIZE": "2",
+    "CHAIRMAN_MEAL_WINDOWS": "lunch,dinner",
+    "CHAIRMAN_FETCH_TIMEOUT_MS": "45000",
+    "CHAIRMAN_FAILURE_ALERT_THRESHOLD": "3"
   }
 }
