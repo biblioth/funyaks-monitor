@@ -1,5 +1,7 @@
 # Funyaks + 大班楼放位监控
 
+> **运行状态（2026-09-24）：Funyaks 已订到，监控现已暂停。** Cloudflare 不再请求 Funyaks 官网，GitHub 的 Funyaks 外部看门狗与周报工作流也已禁用。历史记录、通知配置和恢复能力均保留；大班楼监控继续运行。
+
 同一个 Cloudflare Worker 监控：
 
 - Dart River Adventures 官网的 **2027-02-02 Funyaks，1 位**；

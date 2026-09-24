@@ -1,5 +1,7 @@
 # Cloudflare 主监控部署
 
+> **当前状态（2026-09-24）：** `FUNYAKS_ENABLED=false`，仅暂停 Funyaks；大班楼 Cron 继续每分钟运行。GitHub 中 `Cloudflare watchdog and fallback` 与 `Weekly monitor report` 已禁用。
+
 这个 Worker 每分钟并行检查 Funyaks 与香港大班楼（The Chairman）。D1 分别保存两个监控的状态，Cloudflare Queues 统一负责飞书和 PushPlus 通知重试。GitHub Actions 每 5 分钟从 Cloudflare 外部检查 Funyaks `/health`；Cron 漏跑时先调用 `/check` 自愈，仍失败才运行 Python 独立兜底。
 
 当前生产地址：<https://funyaks-monitor.spicyao-lakewatch.workers.dev>

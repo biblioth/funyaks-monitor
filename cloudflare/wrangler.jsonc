@@ -35,6 +35,7 @@
   },
   "vars": {
     "BOOKING_URL": "https://book.dartriver.co.nz/activity/selection?filter=ProdGroup-DRAALL&workingDate=2027-02-02",
+    "FUNYAKS_ENABLED": "false",
     "TARGET_DATE": "2027-02-02",
     "PARTY_SIZE": "1",
     "FETCH_ATTEMPTS": "3",

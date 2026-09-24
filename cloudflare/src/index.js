@@ -29,6 +29,10 @@ function integer(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+export function funyaksEnabled(env) {
+  return String(env.FUNYAKS_ENABLED ?? "true").toLowerCase() !== "false";
+}
+
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -224,6 +228,14 @@ export async function runCycle(
 }
 
 export async function healthResponse(env) {
+  if (!funyaksEnabled(env)) {
+    return Response.json({
+      ok: true,
+      paused: true,
+      target: { date: env.TARGET_DATE || "2027-02-02", partySize: integer(env.PARTY_SIZE, 1) },
+      message: "Funyaks monitoring is paused",
+    });
+  }
   const state = await getState(env.DB);
   const now = Date.now();
   const staleMs = integer(env.HEALTH_STALE_SECONDS, 180) * 1000;
@@ -317,10 +329,9 @@ export default {
   async scheduled(controller, env, ctx) {
     const scheduledAt = new Date(controller.scheduledTime);
     ctx.waitUntil((async () => {
-      await Promise.allSettled([
-        runCycle(env, { scheduledAt }),
-        runChairmanCycle(env, { scheduledAt }),
-      ]);
+      const cycles = [runChairmanCycle(env, { scheduledAt })];
+      if (funyaksEnabled(env)) cycles.push(runCycle(env, { scheduledAt }));
+      await Promise.allSettled(cycles);
       await enqueuePending(env);
     })());
   },
@@ -336,6 +347,7 @@ export default {
         service: "Funyaks and The Chairman availability monitor",
         monitors: {
           funyaks: {
+            enabled: funyaksEnabled(env),
             targetDate: env.TARGET_DATE || "2027-02-02",
             partySize: integer(env.PARTY_SIZE, 1),
             health: "/health",
@@ -351,6 +363,7 @@ export default {
     }
     if (request.method === "POST" && url.pathname === "/check") {
       if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
+      if (!funyaksEnabled(env)) return Response.json({ status: "paused" });
       return Response.json(await runCycle(env, { trigger: "manual" }));
     }
     if (request.method === "POST" && url.pathname === "/chairman/check") {
@@ -361,6 +374,7 @@ export default {
     }
     if (request.method === "POST" && url.pathname === "/weekly-report") {
       if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
+      if (!funyaksEnabled(env)) return Response.json({ status: "paused" });
       const report = await recordWeeklySummary(env, new Date());
       const queued = await enqueuePending(env);
       return Response.json({ ...report, queued });
@@ -368,7 +382,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/status") {
       if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
       return Response.json({
-        funyaks: await getState(env.DB),
+        funyaks: { enabled: funyaksEnabled(env), state: await getState(env.DB) },
         chairman: await getChairmanState(env.DB),
         channels: configuredChannels(env),
       });
