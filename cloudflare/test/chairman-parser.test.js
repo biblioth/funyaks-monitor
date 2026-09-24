@@ -57,3 +57,19 @@ test("a generic reservation page without target dates fails closed", () => {
   assert.equal(result.status, "unknown");
   assert.equal(result.unknown.length, 6);
 });
+
+test("a booking-page notice covering the target dates marks every meal unavailable", () => {
+  const result = parseChairmanAvailability(`
+    <html><head><title>The Chairman Reservation - The Chairman Group</title></head><body>
+      <h1>The Chairman Reservation</h1>
+      <div class="message-warning">The Chairman Restaurant is fully booked until the end of Dec 2026.
+        Any table cancellations will automatically appear in our booking system.</div>
+    </body></html>
+  `, options);
+
+  assert.equal(result.status, "unavailable");
+  assert.equal(result.available.length, 0);
+  assert.equal(result.unknown.length, 0);
+  assert.equal(result.observations.length, 6);
+  assert.ok(result.observations.every((item) => item.status === "unavailable"));
+});

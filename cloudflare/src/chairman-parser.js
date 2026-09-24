@@ -172,6 +172,22 @@ function contextMealMarker(context, mealWindow) {
   return marker.test(text);
 }
 
+function fullyBookedThroughDate(html) {
+  const text = stripTags(html);
+  const monthPattern = MONTH_NAMES.map((name) => `${name}|${name.slice(0, 3)}`).join("|");
+  const match = new RegExp(
+    `fully\\s+booked\\s+until\\s+(?:the\\s+)?(?:end\\s+of\\s+)?(${monthPattern})\\s+(\\d{4})`,
+    "i",
+  ).exec(text);
+  if (!match) return null;
+  const monthIndex = MONTH_NAMES.findIndex((name) =>
+    name.toLowerCase().startsWith(match[1].toLowerCase()));
+  if (monthIndex < 0) return null;
+  const year = Number(match[2]);
+  const lastDay = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+  return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+}
+
 export function parseChairmanAvailability(
   html,
   {
@@ -199,7 +215,23 @@ export function parseChairmanAvailability(
   }
 
   const observations = [];
+  const bookedThrough = fullyBookedThroughDate(html);
   for (const date of targetDates) {
+    if (bookedThrough && date <= bookedThrough) {
+      for (const mealWindow of normalizedWindows) {
+        observations.push({
+          key: `${date}:${mealWindow}`,
+          date,
+          mealWindow,
+          status: "unavailable",
+          times: [],
+          dateLevel: true,
+          bookingUrl: sourceUrl,
+          evidence: `The booking page states that the restaurant is fully booked through ${bookedThrough}`,
+        });
+      }
+      continue;
+    }
     const contexts = targetContexts(html, date, targetDates);
     const controls = contexts.flatMap((context) =>
       candidateControls(context.html, sourceUrl, date, !context.ambiguous));

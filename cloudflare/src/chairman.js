@@ -78,6 +78,11 @@ function titleFromHtml(html) {
   return /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.replace(/\s+/g, " ").trim() || null;
 }
 
+function isBrowserTabReloadPage(pageTitle, html) {
+  return /^auto reload$/i.test(pageTitle || "") &&
+    /params\.set\(\s*["']btabid["']/i.test(html || "");
+}
+
 function pageFingerprint(html) {
   let hash = 2166136261;
   for (let index = 0; index < html.length; index += 1) {
@@ -234,14 +239,91 @@ export async function fetchChairmanAvailability(env, fetcher = fetch) {
       sourceUrl: queueUrl,
     };
   }
-  const html = await response.text();
-  const pageTitle = titleFromHtml(html);
+  let html = await response.text();
+  let pageTitle = titleFromHtml(html);
+  for (let reloadCount = 0; reloadCount < 2 && isBrowserTabReloadPage(pageTitle, html); reloadCount += 1) {
+    const reloadUrl = new URL(currentUrl);
+    reloadUrl.searchParams.set("btabid", String(Math.floor(Math.random() * 10_000)));
+    let reloadCurrentUrl = reloadUrl.toString().replaceAll("%2F", "/");
+    try {
+      for (let redirectCount = 0; redirectCount < 5; redirectCount += 1) {
+        response = await fetcher(
+          reloadCurrentUrl,
+          fetchOptions(timeoutMs, {
+            referer: currentUrl,
+            ...(originCookies ? { cookie: originCookies } : {}),
+          }),
+        );
+        originCookies = mergeCookies(originCookies, responseCookies(response));
+        if (response.status < 300 || response.status >= 400) break;
+        const location = responseLocation(response, reloadCurrentUrl);
+        if (!location) {
+          return {
+            status: "error",
+            error: `Chairman browser-tab reload returned HTTP ${response.status} without Location`,
+            httpStatus: response.status,
+            targetDates,
+            mealWindows,
+            partySize,
+            sourceUrl: queueUrl,
+          };
+        }
+        const hostname = new URL(location).hostname;
+        if (hostname === "thechairmangroup.queue-it.net") {
+          return {
+            status: "busy",
+            error: `Chairman browser-tab reload returned to Queue-it (${safeRedirectDescription(location)})`,
+            httpStatus: response.status,
+            targetDates,
+            mealWindows,
+            partySize,
+            sourceUrl: queueUrl,
+          };
+        }
+        if (hostname !== "www.thechairmangroup.com") {
+          return {
+            status: "error",
+            error: `Unexpected Chairman browser-tab reload redirect: ${safeRedirectDescription(location)}`,
+            httpStatus: response.status,
+            targetDates,
+            mealWindows,
+            partySize,
+            sourceUrl: queueUrl,
+          };
+        }
+        reloadCurrentUrl = location;
+      }
+    } catch (error) {
+      return {
+        status: "busy",
+        error: `Chairman browser-tab reload timed out: ${error instanceof Error ? error.message : String(error)}`,
+        targetDates,
+        mealWindows,
+        partySize,
+        sourceUrl: queueUrl,
+      };
+    }
+    currentUrl = reloadCurrentUrl;
+    html = await response.text();
+    pageTitle = titleFromHtml(html);
+  }
   const debug = {
     httpStatus: response.status,
     pageTitle,
     pageBytes: new TextEncoder().encode(html).length,
     pageFingerprint: pageFingerprint(html),
   };
+  if (isBrowserTabReloadPage(pageTitle, html)) {
+    return {
+      status: "busy",
+      error: "Chairman booking gate requested another browser-tab reload",
+      targetDates,
+      mealWindows,
+      partySize,
+      sourceUrl: queueUrl,
+      ...debug,
+    };
+  }
   if (
     response.status === 429 ||
     /server\s*busy|currently\s*experiencing\s*high\s*traffic|系統非常繁忙|系统非常繁忙/i.test(html)

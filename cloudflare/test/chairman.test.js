@@ -77,6 +77,50 @@ test("keeps the Queue-it acceptance cookie across the Chairman token-cleanup red
   assert.deepEqual(result.available.map((item) => item.key), ["2026-10-30:lunch"]);
 });
 
+test("emulates the Chairman browser-tab reload gate before parsing availability", async () => {
+  const requests = [];
+  const fetcher = async (url, options) => {
+    requests.push({ url, options });
+    if (requests.length === 1) {
+      return redirect("/afterevent.aspx?c=thechairmangroup&e=chairman260806", {
+        "set-cookie": "Queue-it-visitorsession=visitor-1; path=/; secure; httponly",
+      });
+    }
+    if (requests.length === 2) {
+      return redirect(
+        "https://www.thechairmangroup.com/index.php?route=catering/booking&queueittoken=test",
+      );
+    }
+    if (requests.length === 3) {
+      return redirect("https://www.thechairmangroup.com/index.php?route=catering/booking", {
+        "set-cookie": "QueueITAccepted-SDFrts345E-V3_chairman260806=accepted; path=/; secure; httponly",
+      });
+    }
+    if (requests.length === 4) {
+      return new Response(`<!DOCTYPE html><html><head><title>Auto reload</title></head><body>
+        <script>const params = new URL(location.href).searchParams;
+        params.set('btabid', sessionStorage.getItem('btabid'));</script></body></html>`, { status: 200 });
+    }
+    const reloadUrl = new URL(url);
+    assert.ok(reloadUrl.searchParams.has("btabid"));
+    assert.match(options.headers.cookie, /QueueITAccepted-SDFrts345E-V3_chairman260806=accepted/);
+    return new Response(`
+      <html><body><h1>The Chairman Reservation</h1>
+        <table>
+          <tr><td>2026-10-30</td><td><a href="/book?date=2026-10-30&time=18:30">Book 18:30</a></td></tr>
+          <tr><td>2026-10-31</td><td><button disabled>12:00 Fully booked</button><button disabled>19:00 Fully booked</button></td></tr>
+          <tr><td>2026-11-01</td><td><button disabled>12:00 Fully booked</button><button disabled>19:00 Fully booked</button></td></tr>
+        </table>
+      </body></html>
+    `, { status: 200 });
+  };
+
+  const result = await fetchChairmanAvailability(env, fetcher);
+  assert.equal(requests.length, 5);
+  assert.equal(result.status, "available");
+  assert.deepEqual(result.available.map((item) => item.key), ["2026-10-30:dinner"]);
+});
+
 test("newly available Chairman slots alert once and rearm after unavailability", () => {
   const available = {
     status: "available",
