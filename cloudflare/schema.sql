@@ -88,3 +88,36 @@ CREATE TABLE IF NOT EXISTS chairman_checks (
 
 CREATE INDEX IF NOT EXISTS idx_chairman_checks_scheduled
     ON chairman_checks(scheduled_at DESC);
+
+CREATE TABLE IF NOT EXISTS ocean_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    current_status TEXT,
+    target_session_json TEXT,
+    sessions_json TEXT NOT NULL DEFAULT '[]',
+    booking_url TEXT,
+    last_success_at TEXT,
+    last_checked_at TEXT,
+    last_unavailable_at TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    failure_started_at TEXT,
+    last_error TEXT,
+    updated_at TEXT
+);
+
+INSERT OR IGNORE INTO ocean_state(id) VALUES (1);
+
+CREATE TABLE IF NOT EXISTS ocean_checks (
+    id TEXT PRIMARY KEY,
+    scheduled_at TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    trigger TEXT NOT NULL,
+    status TEXT NOT NULL,
+    http_status INTEGER,
+    error TEXT,
+    result_json TEXT,
+    duration_ms INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_ocean_checks_scheduled
+    ON ocean_checks(scheduled_at DESC);

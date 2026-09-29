@@ -52,6 +52,19 @@
     "CHAIRMAN_PARTY_SIZE": "2",
     "CHAIRMAN_MEAL_WINDOWS": "lunch,dinner",
     "CHAIRMAN_FETCH_TIMEOUT_MS": "45000",
-    "CHAIRMAN_FAILURE_ALERT_THRESHOLD": "3"
+    "CHAIRMAN_FAILURE_ALERT_THRESHOLD": "3",
+    "OCEAN_ENABLED": "true",
+    "OCEAN_PRODUCT_URL": "https://oceanextreme.rezdy.com/294317/whale-watching-on-vessel-extreme-circular-quay-departure",
+    "OCEAN_UPDATE_URL": "https://oceanextreme.rezdy.com/updateTotalprice",
+    "OCEAN_PRODUCT_ID": "294317",
+    "OCEAN_PRICE_OPTION_ID": "66782022",
+    "OCEAN_TARGET_DATE": "2026-10-07",
+    "OCEAN_TARGET_TIME": "11:00",
+    "OCEAN_PARTY_SIZE": "1",
+    "OCEAN_STOP_AT_UTC": "2026-10-07T13:00:00Z",
+    "OCEAN_FETCH_TIMEOUT_MS": "15000",
+    "OCEAN_INTERVAL_MINUTES": "5",
+    "OCEAN_HEALTH_STALE_SECONDS": "420",
+    "OCEAN_FAILURE_ALERT_THRESHOLD": "3"
   }
 }

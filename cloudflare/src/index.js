@@ -6,6 +6,12 @@ import {
   runChairmanCycle,
 } from "./chairman.js";
 import {
+  getOceanState,
+  oceanCheckDue,
+  oceanHealthResponse,
+  runOceanCycle,
+} from "./ocean.js";
+import {
   cleanup,
   createEvent,
   getDelivery,
@@ -330,6 +336,7 @@ export default {
     const scheduledAt = new Date(controller.scheduledTime);
     ctx.waitUntil((async () => {
       const cycles = [runChairmanCycle(env, { scheduledAt })];
+      if (oceanCheckDue(env, scheduledAt)) cycles.push(runOceanCycle(env, { scheduledAt }));
       if (funyaksEnabled(env)) cycles.push(runCycle(env, { scheduledAt }));
       await Promise.allSettled(cycles);
       await enqueuePending(env);
@@ -342,9 +349,12 @@ export default {
     if (request.method === "GET" && url.pathname === "/chairman/health") {
       return chairmanHealthResponse(env);
     }
+    if (request.method === "GET" && url.pathname === "/ocean/health") {
+      return oceanHealthResponse(env);
+    }
     if (request.method === "GET" && url.pathname === "/") {
       return Response.json({
-        service: "Funyaks and The Chairman availability monitor",
+        service: "Funyaks, The Chairman, and Ocean Extreme availability monitor",
         monitors: {
           funyaks: {
             enabled: funyaksEnabled(env),
@@ -357,6 +367,14 @@ export default {
             partySize: integer(env.CHAIRMAN_PARTY_SIZE, 2),
             mealWindows: String(env.CHAIRMAN_MEAL_WINDOWS || "lunch,dinner").split(","),
             health: "/chairman/health",
+          },
+          oceanExtreme: {
+            product: "Whale Watching on vessel EXTREME - Circular Quay Departure",
+            targetDate: env.OCEAN_TARGET_DATE || "2026-10-07",
+            targetTime: env.OCEAN_TARGET_TIME || "11:00",
+            partySize: integer(env.OCEAN_PARTY_SIZE, 1),
+            stopAt: env.OCEAN_STOP_AT_UTC || "2026-10-07T13:00:00Z",
+            health: "/ocean/health",
           },
         },
       });
@@ -372,6 +390,12 @@ export default {
       const queued = await enqueuePending(env);
       return Response.json({ ...result, queued });
     }
+    if (request.method === "POST" && url.pathname === "/ocean/check") {
+      if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
+      const result = await runOceanCycle(env, { trigger: "manual" });
+      const queued = await enqueuePending(env);
+      return Response.json({ ...result, queued });
+    }
     if (request.method === "POST" && url.pathname === "/weekly-report") {
       if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
       if (!funyaksEnabled(env)) return Response.json({ status: "paused" });
@@ -384,6 +408,7 @@ export default {
       return Response.json({
         funyaks: { enabled: funyaksEnabled(env), state: await getState(env.DB) },
         chairman: await getChairmanState(env.DB),
+        oceanExtreme: await getOceanState(env.DB),
         channels: configuredChannels(env),
       });
     }

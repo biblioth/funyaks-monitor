@@ -1,20 +1,22 @@
-# Funyaks + 大班楼放位监控
+# Funyaks + 大班楼 + Ocean Extreme 放位监控
 
 > **运行状态（2026-09-24）：Funyaks 已订到，监控现已暂停。** Cloudflare 不再请求 Funyaks 官网，GitHub 的 Funyaks 外部看门狗与周报工作流也已禁用。历史记录、通知配置和恢复能力均保留；大班楼监控继续运行。
 
 同一个 Cloudflare Worker 监控：
 
 - Dart River Adventures 官网的 **2027-02-02 Funyaks，1 位**；
-- 香港大班楼（The Chairman）官网的 **2026-10-30、10-31、11-01，2 位，午餐或晚餐**。
+- 香港大班楼（The Chairman）官网的 **2026-10-30、10-31、11-01，2 位，午餐或晚餐**；
+- Ocean Extreme Rezdy 官网的 **2026-10-07 11:00，EXTREME 船、Circular Quay 出发，1 位**。此监控在悉尼时间 **2026-10-08 00:00** 自动停止。
 
 生产 Worker：<https://funyaks-monitor.spicyao-lakewatch.workers.dev>
 
 当前生产设计以 Cloudflare 为主：
 
 ```text
-Cloudflare Cron（每分钟）
+Cloudflare Cron（每分钟触发）
   → Funyaks 官网 HTML 重试检查
   → 大班楼 Queue-it 通行令牌 → 官方订位页检查
+  → Ocean Extreme 每 5 分钟检查一次 Rezdy 精确场次
   → D1 唯一状态与去重
   → Cloudflare Queues
   → 飞书 / PushPlus 微信 / PushPlus Clawbot

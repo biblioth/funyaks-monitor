@@ -25,6 +25,40 @@ function truncate(value, length = 700) {
 
 export function renderEvent(event) {
   const payload = event.payload || {};
+  if (event.type === "ocean_availability") {
+    return {
+      title: "🐋 Ocean Extreme 11:00 有位置了",
+      message: [
+        `🐋 Ocean Extreme 有位置了（${payload.partySize || 1} 位）`,
+        "船只：EXTREME｜Circular Quay 出发",
+        `日期：${payload.targetDate}｜时间：${payload.targetTime}`,
+        payload.session?.label ? `官网场次：${payload.session.label}` : null,
+        payload.sourceUrl ? `立即预订：${payload.sourceUrl}` : null,
+        "座位随时可能被订走，请以官网最终结果为准。",
+      ].filter(Boolean).join("\n"),
+    };
+  }
+  if (event.type === "ocean_monitor_degraded") {
+    return {
+      title: "🚨 Ocean Extreme 监控异常",
+      message: [
+        "🚨 Ocean Extreme 监控连续无法确认余位",
+        `连续失败：${payload.consecutiveFailures || "多"} 次`,
+        `最后错误：${truncate(payload.error)}`,
+        payload.pageTitle ? `页面标题：${payload.pageTitle}` : null,
+      ].filter(Boolean).join("\n"),
+    };
+  }
+  if (event.type === "ocean_monitor_recovered") {
+    return {
+      title: "✅ Ocean Extreme 监控已恢复",
+      message: [
+        "✅ Ocean Extreme 监控已恢复",
+        `此前连续失败：${payload.previousFailures || 0} 次`,
+        `当前状态：${payload.currentStatus === "available" ? "有位" : "暂无位置"}`,
+      ].join("\n"),
+    };
+  }
   if (event.type === "chairman_availability") {
     const mealName = { lunch: "午餐", dinner: "晚餐" };
     const lines = [

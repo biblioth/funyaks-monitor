@@ -45,6 +45,23 @@ test("Chairman notification contains target date, meal and official queue link",
   assert.match(rendered.message, /queue-it\.net/);
 });
 
+test("Ocean Extreme notification names the exact date, time and official booking link", () => {
+  const rendered = renderEvent({
+    type: "ocean_availability",
+    payload: {
+      partySize: 1,
+      targetDate: "2026-10-07",
+      targetTime: "11:00",
+      session: { label: "11:00 AM" },
+      sourceUrl: "https://oceanextreme.rezdy.com/294317/example",
+    },
+  });
+  assert.match(rendered.title, /Ocean Extreme/);
+  assert.match(rendered.message, /2026-10-07/);
+  assert.match(rendered.message, /11:00/);
+  assert.match(rendered.message, /oceanextreme\.rezdy\.com/);
+});
+
 test("notification channels are independent and deduplicated", () => {
   assert.deepEqual(
     configuredChannels({
