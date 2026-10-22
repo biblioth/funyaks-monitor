@@ -1,6 +1,29 @@
 import { renderRaceMessage } from "./race-messages.js";
 
 const TYPES = new Set(["race_digest", "race_wtm_asia", "race_source_degraded", "race_source_recovered"]);
+const PUBLIC_SOURCES = {
+  hk_home: "https://hk100ultra.com/",
+  hk_entry: "https://hk100ultra.com/entry/",
+  wtm_members: "https://hk100ultra.com/world-trail-majors/",
+  kailas_news: "https://www.kailas.com.cn/Home/Article/BrandNews/type/1.html",
+};
+
+export async function raceSourceResponse(request, fetcher = fetch) {
+  const name = new URL(request.url).searchParams.get("name");
+  const url = PUBLIC_SOURCES[name];
+  if (!url) return new Response("Unknown public source", { status: 400 });
+  // No caller-supplied URL, cookies or credentials are ever forwarded upstream.
+  try {
+    const response = await fetcher(url, { redirect: "manual", signal: AbortSignal.timeout(20000),
+      headers: { "user-agent": "Mozilla/5.0 (compatible; RaceRegistrationMonitor/1.0)", accept: "text/html" } });
+    if (!response.ok) return Response.json({ upstreamStatus: response.status }, { status: 502 });
+    const html = await response.text();
+    if (html.length > 2_000_000) return new Response("Source too large", { status: 502 });
+    return Response.json({ html });
+  } catch {
+    return Response.json({ error: "Public source fetch failed" }, { status: 502 });
+  }
+}
 
 export async function raceState(db) {
   const row = await db.prepare("SELECT version, state_json FROM race_monitor_state WHERE id=1").first();

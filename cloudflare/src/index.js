@@ -1,6 +1,6 @@
 import { parseFunyaksAvailability } from "./parser.js";
 import { configuredChannels, sendEvent } from "./notifications.js";
-import { raceState, commitRaceState, raceHealthResponse, validateRaceCommit } from "./races.js";
+import { raceState, commitRaceState, raceHealthResponse, validateRaceCommit, raceSourceResponse } from "./races.js";
 import {
   chairmanHealthResponse,
   getChairmanState,
@@ -347,6 +347,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/races/health") return raceHealthResponse(env);
+    if (request.method === "GET" && url.pathname === "/races/source") {
+      if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
+      return raceSourceResponse(request);
+    }
     if (url.pathname === "/races/state" && request.method === "GET") {
       if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
       return Response.json(await raceState(env.DB));

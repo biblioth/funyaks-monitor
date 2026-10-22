@@ -73,6 +73,13 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(display_time("2026-11-02"), "2026-11-02")
         self.assertEqual(display_time(None), "待公布")
 
+    def test_different_group_windows_do_not_hide_a_still_open_short_race(self):
+        candidate = item(category="wtm", closes="2026-10-01", registration_windows=[
+            {"label": "100mi", "closes": "2026-10-01"}, {"label": "短距离", "closes": "2026-12-01"}])
+        self.assertTrue(eligible(candidate, NOW))
+        message = digest_events([candidate], NOW, "1/1")[0]["payload"]["message"]
+        self.assertIn("短距离：待公布 ～ 2026-12-01", message)
+
 
 class SourceTests(unittest.TestCase):
     def test_utmb_reads_complete_embedded_catalog_not_visible_first_page(self):
@@ -107,7 +114,8 @@ class SourceTests(unittest.TestCase):
 
     def test_utmb_registration_slug_and_sold_out_groups_are_not_lost(self):
         data = {"props": {"pageProps": {"event": {"name": "Example", "begin": "2027-03-01"},
-                "pageHeader": {"link": {"slug": "https://in.register-utmb.world/example"}},
+                "pageHeader": {"link": {"label": "Register Now", "slug": "https://in.register-utmb.world/example"}},
+                "simpleMenu": {"slug": "https://in.register-utmb.world/another-event"},
                 "slices": [{"data": {"races": [{"id": 1, "name": "100K", "raceStatus": {"status": "registration_open"}},
                                                {"id": 2, "name": "50K", "raceStatus": {"status": "registration_sold_out"}}]}}]}}}
         class Client:

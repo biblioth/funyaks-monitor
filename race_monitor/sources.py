@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import ipaddress
 import json
+import os
 import re
 import socket
 import time
@@ -57,7 +58,7 @@ class Client:
                 for _ in range(6):
                     public_url(url)
                     r = requests.get(url, timeout=(5, self.timeout), allow_redirects=False, stream=True,
-                                     headers={"User-Agent": "RaceRegistrationMonitor/1.0 (+https://github.com/biblioth/funyaks-monitor)", "Accept-Language": "zh-CN,en;q=0.8"})
+                                     headers={"User-Agent": "Mozilla/5.0 (compatible; RaceRegistrationMonitor/1.0; +https://github.com/biblioth/funyaks-monitor)", "Accept-Language": "zh-CN,en;q=0.8"})
                     if r.is_redirect:
                         url = urljoin(url, r.headers.get("Location", ""))
                         r.close()
@@ -79,6 +80,17 @@ class Client:
                     return data.decode("utf-8-sig", errors="replace")
                 raise SourceError("来源重定向次数过多")
             except (requests.RequestException, SourceError) as e:
+                fallback = {"https://hk100ultra.com/": "hk_home", "https://hk100ultra.com/entry/": "hk_entry", WTM_URL: "wtm_members",
+                            "https://www.kailas.com.cn/Home/Article/BrandNews/type/1.html": "kailas_news"}.get(original)
+                proxy = os.environ.get("RACE_MONITOR_URL", "").rstrip("/")
+                token = os.environ.get("CLOUDFLARE_ADMIN_TOKEN", "")
+                if fallback and not binary and proxy.startswith("https://") and token:
+                    try:
+                        alternate = requests.get(proxy + "/races/source", params={"name": fallback}, headers={"Authorization": f"Bearer {token}"}, timeout=25)
+                        if alternate.status_code == 200 and isinstance(alternate.json().get("html"), str):
+                            return alternate.json()["html"]
+                    except (requests.RequestException, ValueError):
+                        pass
                 error = f"{urlsplit(original).hostname}：{type(e).__name__}"
                 if isinstance(e, requests.HTTPError):
                     error += f" HTTP {e.response.status_code}"
@@ -133,12 +145,14 @@ def utmb_event(client, event):
     begin = str(current.get("begin") or event["dateBegin"])[:10]
     end = str(current.get("end") or event.get("dateEnd") or begin)[:10]
     races = {str(x["id"]): x for x in walk(p.get("slices", [])) if x.get("id") and x.get("raceStatus") and x.get("name")}
-    registration = ""
-    # CTA URLs live under different keys in UTMB site versions.
+    # Global menus can contain OTHER events' registration links. The current
+    # page header and current site's explicit Register control are the only CTAs.
+    own_link = p.get("pageHeader", {}).get("link") or {}
+    registration = safe_url(urljoin(url, own_link.get("slug") or own_link.get("url") or "")) if re.search(r"register|报名", str(own_link.get("label", "")), re.I) else ""
     if not registration:
-        registration = next((v for x in walk({k: v for k, v in p.items() if k not in {"eventsTopBar", "_nextI18Next"}}) for k, v in x.items() if k in {"url", "href", "link", "slug"} and isinstance(v, str) and "register-utmb.world" in v), "")
-    if not registration:
-        registration = next((urljoin(url, a["href"]) for a in soup(html).select("a[href]") if re.search(r"^(?:register(?: now)?|registration|报名)$", clean(a.get_text()), re.I)), "")
+        registration = next((urljoin(url, a["href"]) for a in soup(html).select("a[href]") if re.search(r"^(?:register(?: now)?|registration|报名)$", clean(a.get_text()), re.I)
+                             and (urlsplit(urljoin(url, a["href"])).hostname == urlsplit(url).hostname
+                                  or event["tenant"].replace("-", "") in re.sub(r"[^a-z0-9]", "", a["href"].lower()))), "")
     groups = []
     statuses = []
     for race in races.values():
@@ -287,10 +301,15 @@ def fuji_items(client):
     closes = datetime(int(v[5] or v[0]), *map(int, v[6:]), tzinfo=jst).isoformat()
     dates = chinese_dates(info, year)
     dates = [d for d in dates if d.startswith(year)]
-    groups = list(dict.fromkeys(re.findall(r"FUJI\s*100mi|KAI\s*70k|ASUMI\s*40k|SAKUYA", text, re.I)))
+    groups = list(dict.fromkeys(re.findall(r"FUJI\s*100mi|KAI\s*70k|ASUMI\s*40k|SAKUYA|Mt\.FUJI100 Mini", text, re.I)))
+    windows = [{"label": "FUJI100mi／KAI70k／ASUMI40k 普通报名", "opens": opens, "closes": closes}]
+    short = re.search(r"④\s*SAKUYA[\s\S]{0,60}?エントリー期間\s*(20\d{2})年(\d+)月(\d+)日[\s\S]{0,15}?[～〜~](20\d{2})年(\d+)月(\d+)日", text)
+    if short:
+        v = list(map(int, short.groups()))
+        windows.append({"label": "SAKUYA／Mt.FUJI100 Mini（仅公布日期，日本当地日期）", "opens": f"{v[0]:04d}-{v[1]:02d}-{v[2]:02d}", "closes": f"{v[3]:04d}-{v[4]:02d}-{v[5]:02d}"})
     return [{"id": f"wtm:fuji:{year}", "series_id": "wtm:fuji", "edition": year, "name": f"{year} 环富士山 Mt.FUJI100", "category": "wtm",
              "date": dates[0] if dates else None, "date_end": dates[-1] if dates else None, "location": "日本·富士山地区", "groups": "／".join(groups),
-             "status": "preview", "opens": opens, "closes": closes, "method": "普通报名超额抽签；捐赠名额先到先得（独立类别）",
+             "status": "preview", "opens": opens, "closes": closes, "registration_windows": windows, "method": "主要组别普通报名超额抽签；捐赠名额及SAKUYA／Mini先到先得",
              "qualification": "按组别核对ITRA完赛要求；优先报名另有资格条件", "official": entry_url, "registration": entry_url,
              "source": entry_url, "verified": True, "priority": 0}]
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import worker from "../src/index.js";
-import { raceState, commitRaceState, raceHealthResponse } from "../src/races.js";
+import { raceState, commitRaceState, raceHealthResponse, raceSourceResponse } from "../src/races.js";
 import { renderEvent, sendEvent } from "../src/notifications.js";
 
 function database() {
@@ -54,10 +54,21 @@ test("missing Feishu configuration must not consume a discovery", async () => {
 });
 
 test("race endpoints require the existing admin credential", async () => {
-  for (const path of ["/races/state", "/races/commit"]) {
+  for (const path of ["/races/state", "/races/commit", "/races/source"]) {
     const r = await worker.fetch(new Request("https://worker.test" + path, { method: path.endsWith("commit") ? "POST" : "GET" }), env());
     assert.equal(r.status, 401);
   }
+});
+
+test("public-source fallback only fetches fixed URLs and never forwards admin credentials", async () => {
+  let options;
+  const response = await raceSourceResponse(new Request("https://worker.test/races/source?name=hk_home", { headers: { authorization: "Bearer private", cookie: "private" } }), async (url, opts) => {
+    assert.equal(url, "https://hk100ultra.com/"); options = opts; return new Response("<html>race</html>");
+  });
+  assert.equal(response.status, 200);
+  assert.equal(options.headers.authorization, undefined);
+  assert.equal(options.headers.cookie, undefined);
+  assert.equal((await raceSourceResponse(new Request("https://worker.test/races/source?name=http://127.0.0.1"))).status, 400);
 });
 
 test("a malformed race payload cannot create an event or mutate D1", async () => {

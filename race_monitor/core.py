@@ -59,7 +59,8 @@ def eligible(item, now):
         return False
     if item.get("status") in {"closed", "sold_out", "cancelled", "past", "unknown"}:
         return False
-    end = stamp(item.get("closes"))
+    windows = item.get("registration_windows", [])
+    end = max((stamp(w.get("closes")) for w in windows if stamp(w.get("closes"))), default=None) if windows else stamp(item.get("closes"))
     if end and end < now:
         return False
     race = str(item.get("date_end") or item.get("date") or "")[:10]
@@ -111,9 +112,11 @@ def item_text(item):
              f"地点：{clean(item.get('location')) or '待公布'}｜活动日期：{display_time(item.get('date'))}",
              f"项目／组别：{clean(item.get('groups')) or '待公布'}",
              f"报名状态：{labels.get(item.get('status'), '待公布')}",
-             f"报名时间：{display_time(item.get('opens'))} ～ {display_time(item.get('closes'))}（北京时间）",
+             "报名时间：按组别列示（时刻为北京时间；仅日期另注明原时区）" if item.get("registration_windows") else f"报名时间：{display_time(item.get('opens'))} ～ {display_time(item.get('closes'))}（北京时间）",
              f"报名方式：{clean(item.get('method')) or '待公布'}｜费用：{clean(item.get('fee')) or '待公布'}",
              f"资格要求：{clean(item.get('qualification')) or '请查看官方规程'}"]
+    for window in item.get("registration_windows", []):
+        lines.append(f"{clean(window['label'])}：{display_time(window.get('opens'))} ～ {display_time(window.get('closes'))}")
     for key, label in [("brand", "品牌关系"), ("certification", "A类依据")]:
         if item.get(key):
             lines.append(f"{label}：{clean(item[key])}")
