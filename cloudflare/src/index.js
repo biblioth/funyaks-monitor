@@ -1,5 +1,6 @@
 import { parseFunyaksAvailability } from "./parser.js";
 import { configuredChannels, sendEvent } from "./notifications.js";
+import { raceState, commitRaceState, raceHealthResponse, validateRaceCommit } from "./races.js";
 import {
   chairmanHealthResponse,
   getChairmanState,
@@ -345,6 +346,28 @@ export default {
 
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/races/health") return raceHealthResponse(env);
+    if (url.pathname === "/races/state" && request.method === "GET") {
+      if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
+      return Response.json(await raceState(env.DB));
+    }
+    if (url.pathname === "/races/commit" && request.method === "POST") {
+      if (!authorized(request, env)) return new Response("Unauthorized", { status: 401 });
+      let body;
+      try {
+        const text = await request.text();
+        if (text.length > 4_000_000) return new Response("Payload too large", { status: 413 });
+        body = JSON.parse(text);
+        validateRaceCommit(body);
+      } catch {
+        return new Response("Invalid race commit", { status: 400 });
+      }
+      const result = await commitRaceState(env, body);
+      if (result.conflict) return Response.json(result, { status: 409 });
+      // The minute queue sweeper also picks up committed events after a crash.
+      try { result.queued = await enqueuePending(env); } catch { result.queued = false; }
+      return Response.json(result);
+    }
     if (request.method === "GET" && url.pathname === "/health") return healthResponse(env);
     if (request.method === "GET" && url.pathname === "/chairman/health") {
       return chairmanHealthResponse(env);

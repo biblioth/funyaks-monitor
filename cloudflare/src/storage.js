@@ -247,14 +247,16 @@ export async function cleanup(db, cutoff) {
   await db
     .prepare(
       `DELETE FROM monitor_deliveries
-       WHERE status='delivered' AND delivered_at < ?`,
+       WHERE status='delivered' AND delivered_at < ?
+       AND event_id NOT IN (SELECT id FROM monitor_events WHERE event_type LIKE 'race_%')`,
     )
     .bind(cutoff)
     .run();
   await db
     .prepare(
       `DELETE FROM monitor_events
-       WHERE created_at < ? AND id NOT IN (SELECT event_id FROM monitor_deliveries)`,
+       WHERE created_at < ? AND event_type NOT LIKE 'race_%'
+       AND id NOT IN (SELECT event_id FROM monitor_deliveries)`,
     )
     .bind(cutoff)
     .run();

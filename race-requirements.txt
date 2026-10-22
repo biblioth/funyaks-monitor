@@ -1,0 +1,4 @@
+beautifulsoup4==4.15.0
+requests==2.32.5
+pypdf==6.21.2
+json5==0.15.0
