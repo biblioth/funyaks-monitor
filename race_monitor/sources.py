@@ -80,6 +80,21 @@ class Client:
                     return data.decode("utf-8-sig", errors="replace")
                 raise SourceError("来源重定向次数过多")
             except (requests.RequestException, SourceError) as e:
+                alternate_status = ""
+                wp_page = {"https://hk100ultra.com/": 2, "https://hk100ultra.com/entry/": 4, WTM_URL: 291}.get(original)
+                if wp_page:
+                    # These public API links are advertised in the official
+                    # HTML's rel=alternate tags. No login or cookies are used.
+                    try:
+                        api = requests.get(f"https://hk100ultra.com/wp-json/wp/v2/pages/{wp_page}", timeout=(5, 20))
+                        if api.status_code == 200:
+                            value = api.json()
+                            content = value.get("content", {}).get("rendered")
+                            if isinstance(content, str) and len(content) > 200:
+                                return content
+                        alternate_status = f"；公开API HTTP {api.status_code}"
+                    except (requests.RequestException, ValueError):
+                        alternate_status = "；公开API读取失败"
                 fallback = {"https://hk100ultra.com/": "hk_home", "https://hk100ultra.com/entry/": "hk_entry", WTM_URL: "wtm_members",
                             "https://www.kailas.com.cn/Home/Article/BrandNews/type/1.html": "kailas_news"}.get(original)
                 proxy = os.environ.get("RACE_MONITOR_URL", "").rstrip("/")
@@ -89,11 +104,15 @@ class Client:
                         alternate = requests.get(proxy + "/races/source", params={"name": fallback}, headers={"Authorization": f"Bearer {token}"}, timeout=25)
                         if alternate.status_code == 200 and isinstance(alternate.json().get("html"), str):
                             return alternate.json()["html"]
+                        alternate_status += f"；备用读取 HTTP {alternate.status_code}"
+                        if alternate.status_code == 502:
+                            alternate_status += f"（源站 {alternate.json().get('upstreamStatus', '读取失败')}）"
                     except (requests.RequestException, ValueError):
                         pass
                 error = f"{urlsplit(original).hostname}：{type(e).__name__}"
                 if isinstance(e, requests.HTTPError):
                     error += f" HTTP {e.response.status_code}"
+                error += alternate_status
                 if attempt + 1 < self.attempts:
                     time.sleep(max(retry_after, 2 ** attempt))
         raise SourceError(f"{self.attempts} 次尝试失败（{error}）")
@@ -326,34 +345,33 @@ def hk_items(client):
     if "ENTRY PROCEDURES" not in entry or "Charity" not in entry:
         raise SourceError("港百报名规则结构已变化")
     charity = next((safe_url(urljoin(url, a["href"])) for a in s.select("a[href]") if "CHARITY REGISTRATION" in a.get_text().upper()), "")
+    published_entry = next((safe_url(urljoin(url, a["href"])) for a in s.select("a[href]") if "raceresults.com.hk" in a["href"] and clean(a.get_text()).lower() == "register"), "")
     # Do not infer available regular entries from a generic Register button.
     days = [int(x) for x in re.findall(r"Jan(?:uary)?\s+(\d{1,2})[ ,]+" + edition[1], text, re.I)]
     days += [int(x) for x in re.findall(r"(\d{1,2})\s+January\s+" + edition[1], text)]
     date = f"{edition[1]}-01-{min(days):02d}" if days else None
     return [{"id": f"wtm:hk100:{edition[1]}", "series_id": "wtm:hk100", "edition": edition[1], "name": f"{edition[1]} 港百 Hong Kong 100", "category": "wtm",
              "date": date, "location": "中国香港", "groups": "HK100／The Half／The Third／Grand Sam",
-             "status": "charity" if charity else "unknown", "method": "普通名额抽签；慈善名额另行报名，实际余位请在报名平台核实",
-             "qualification": "年龄及越野经验要求请查看当届规程", "official": entry_url, "registration": charity,
+             "status": "charity" if charity else "announced", "method": "普通名额抽签；慈善名额另行报名，实际余位请在报名平台核实",
+             "qualification": "年龄及越野经验要求请查看当届规程；出现报名入口不代表当前开放或有剩余名额", "official": entry_url, "registration": charity or published_entry or entry_url,
              "source": url, "verified": True, "priority": 0}]
 
 
 def wtm_members(html, evidence=WTM_URL):
     s = soup(html)
     members = []
+    cards = []
+    # Mt.FUJI's official member list is a second public source with direct
+    # organizer links; it remains usable when Hong Kong's page is blocked.
+    for entry in s.select("ul.disc > li"):
+        link = entry.select_one("b a[href]")
+        if link:
+            cards.append((clean(link.get_text(" ", strip=True)), entry.get_text(" ", strip=True), urljoin(evidence, link["href"])))
     # Each official member card has its own heading and series Details link.
     for heading in s.select("h3"):
         name = clean(heading.get_text(" ", strip=True))
         if not name or not re.search(r"100|Ultra|Marathon|Trail|MIUT|Transgrancanaria", name, re.I):
             continue
-        slug = normalized_name(name)
-        if "hongkong100" in slug:
-            key = "hong-kong-100"
-        elif "fuji100" in slug:
-            key = "mt-fuji-100"
-        elif "vietnammountainmarathon" in slug:
-            key = "vietnam-mountain-marathon"
-        else:
-            key = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or slug
         parent = heading.parent
         card = parent.get_text(" ", strip=True)
         # Ascend only inside this card, not a parent that contains every country.
@@ -365,11 +383,32 @@ def wtm_members(html, evidence=WTM_URL):
                 break
             parent = parent.parent
         link = next((safe_url(a["href"]) for a in parent.select("a[href]") if "worldtrailmajors.com/" in a["href"]), "")
-        asia = key in {"hong-kong-100", "mt-fuji-100", "vietnam-mountain-marathon"} or bool(re.search(r"\b(?:Asia|China|Japan|Hong Kong|Vietnam|Thailand|Malaysia|Taiwan|Korea|Indonesia|Philippines|Nepal|India|Bhutan|Laos|Cambodia|Singapore|Oman|Kazakhstan|Kyrgyzstan|Mongolia|Taipei|United Arab Emirates|Saudi Arabia)\b|亚洲|中国|日本|韩国|泰国|越南", card, re.I))
+        cards.append((name, card, link))
+    for name, card, link in cards:
+        slug = normalized_name(name)
+        if "hongkong100" in slug:
+            key = "hong-kong-100"
+        elif "fuji100" in slug:
+            key = "mt-fuji-100"
+        elif "vietnammountainmarathon" in slug:
+            key = "vietnam-mountain-marathon"
+        else:
+            key = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or slug
+        asia = key in {"hong-kong-100", "mt-fuji-100", "vietnam-mountain-marathon"} or bool(re.search(r"\b(?:Asia|China|Japan|Hong Kong|Vietnam|Thailand|Malaysia|Taiwan|Korea|Indonesia|Philippines|Nepal|India|Bhutan|Laos|Cambodia|Singapore|Oman|Kazakhstan|Kyrgyzstan|Mongolia|Taipei|United Arab Emirates|Saudi Arabia)\b|亚洲|中国|日本|韩国|泰国|越南|香港|ベトナム|タイ王国|マレーシア|台湾|韓国|インドネシア|フィリピン|ネパール|ブータン|モンゴル|オマーン", card, re.I))
         members.append({"id": key, "name": name, "asia": asia, "location": "亚洲" if asia else "", "url": link, "evidence": evidence, "verified": True})
     if len(members) < 3 or not any(m["id"] == "hong-kong-100" for m in members):
         raise SourceError("WTM 官方成员清单结构已变化")
     return members
+
+
+def member_catalog(client):
+    errors = []
+    for url in [WTM_URL, "https://www.mtfuji100.com/world-trail-majors/"]:
+        try:
+            return wtm_members(client.get(url), evidence=url)
+        except SourceError as e:
+            errors.append(str(e))
+    raise SourceError("；".join(errors))
 
 
 def zui_cards(html):
@@ -567,7 +606,7 @@ def collect(now, client=None):
                   ("brand:arcteryx", lambda: arc_items(client)),
                   ("brand:letour", lambda: brand_article_items(client, "https://www.letoursports.net/", "凯乐石合作赛事（朗途官方发布）", "letour")),
                   ("brand:kailas", lambda: brand_article_items(client, "https://www.kailas.com.cn/Home/Article/BrandNews/type/1.html", "凯乐石官方发布", "kailas"))])
-    m = run("wtm:members", lambda: wtm_members(client.get(WTM_URL)))
+    m = run("wtm:members", lambda: member_catalog(client))
     members.extend(m or [])
     events = run("caa:discovery", lambda: inview_events(client.get(INVIEW_URL)))
     pdf_urls = {DIRECTORY_URL}

@@ -1,12 +1,13 @@
 import copy
 import json
 import unittest
+import requests
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from race_monitor.core import CST, digest_events, merge_discoveries, member_events, eligible, display_time
 from race_monitor.service import execute, plan
-from race_monitor.sources import utmb_index, utmb_event, next_data, wtm_members, directory_rows, match_directory, arcteryx_records, zui_cards, SourceError
+from race_monitor.sources import Client, utmb_index, utmb_event, next_data, wtm_members, directory_rows, match_directory, arcteryx_records, zui_cards, SourceError
 
 NOW = datetime(2026, 10, 22, 9, tzinfo=CST)
 
@@ -82,6 +83,18 @@ class DiscoveryTests(unittest.TestCase):
 
 
 class SourceTests(unittest.TestCase):
+    def test_public_wordpress_api_can_recover_a_blocked_official_page(self):
+        blocked = requests.Response()
+        blocked.status_code = 403
+        api = requests.Response()
+        api.status_code = 200
+        html = "<h3>Hong Kong 100</h3>" * 20
+        api._content = json.dumps({"content": {"rendered": html}}).encode()
+        with patch("race_monitor.sources.public_url"), patch("race_monitor.sources.requests.get", side_effect=[blocked, api]) as get:
+            self.assertEqual(Client().get("https://hk100ultra.com/"), html)
+            self.assertIn("/wp-json/wp/v2/pages/2", get.call_args_list[1].args[0])
+            self.assertNotIn("Authorization", get.call_args_list[1].kwargs.get("headers", {}))
+
     def test_utmb_reads_complete_embedded_catalog_not_visible_first_page(self):
         events = [{"tenant": n, "dateBegin": "2027-01-01", "url": f"https://{n}.utmb.world", "title": n} for n in ["first", "second", "third"]]
         html = '<script id="__NEXT_DATA__" type="application/json">' + json.dumps({"props": {"pageProps": {"eventsTopBar": events, "slices": [{"data": {"races": [{"name": "visible first page only"}]}}]}}}) + '</script>'
