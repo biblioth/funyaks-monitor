@@ -11,6 +11,15 @@ on:
         description: "Read sources without changing state or sending Feishu messages"
         type: boolean
         default: false
+      runner:
+        description: "GitHub hosted network environment"
+        type: choice
+        options: [ubuntu-latest, macos-latest]
+        default: ubuntu-latest
+      network_probe:
+        description: "Only test public source connectivity; do not read state or send messages"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,7 +30,7 @@ concurrency:
 
 jobs:
   monitor:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || vars.RACE_MONITOR_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 23
     env:
       RACE_MONITOR_URL: https://funyaks-monitor.spicyao-lakewatch.workers.dev
@@ -34,7 +43,28 @@ jobs:
           cache: pip
           cache-dependency-path: race-requirements.txt
       - run: pip install -r race-requirements.txt
+      - name: Probe restricted public sources without sending notifications
+        if: inputs.network_probe == true
+        run: |
+          python - <<'PY'
+          import requests
+          from concurrent.futures import ThreadPoolExecutor
+          urls = [
+              "https://hk100ultra.com/",
+              "https://hk100ultra.com/wp-json/wp/v2/pages/2",
+              "https://www.kailas.com.cn/Home/Article/BrandNews/type/1.html",
+          ]
+          def probe(url):
+              try:
+                  r = requests.get(url, timeout=25)
+                  print(url, "HTTP", r.status_code, "bytes", len(r.content), flush=True)
+              except requests.RequestException:
+                  print(url, "unreachable", flush=True)
+          with ThreadPoolExecutor(max_workers=3) as pool:
+              list(pool.map(probe, urls))
+          PY
       - name: Collect daily discoveries or compensate a missing batch
+        if: inputs.network_probe != true
         run: python -m race_monitor.service ${{ inputs.preview && '--preview' || '' }}
       - name: Preserve source coverage report
         if: always()
@@ -45,7 +75,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
       - name: Notify through the original Feishu robot if the job fails
-        if: failure() && inputs.preview != true
+        if: failure() && inputs.preview != true && inputs.network_probe != true
         run: |
           python - <<'PY'
           import os
