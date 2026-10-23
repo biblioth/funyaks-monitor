@@ -5,7 +5,8 @@ import requests
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-from race_monitor.core import CST, digest_events, merge_discoveries, member_events, eligible, display_time
+from race_monitor.core import CST, digest_events, merge_discoveries, member_events, eligible, display_time, in_scope
+from race_monitor import sources as source_module
 from race_monitor.service import execute, plan
 from race_monitor.sources import Client, utmb_index, utmb_event, next_data, wtm_members, directory_rows, match_directory, arcteryx_records, zui_cards, SourceError
 
@@ -14,7 +15,7 @@ NOW = datetime(2026, 10, 22, 9, tzinfo=CST)
 
 def item(**kwargs):
     return dict({"id": "utmb:one:2027", "series_id": "utmb:one", "edition": "2027", "name": "2027 Example by UTMB", "category": "utmb",
-                 "date": "2027-03-01", "status": "open", "verified": True, "official": "https://one.utmb.world/", "location": "Japan"}, **kwargs)
+                 "date": "2027-03-01", "status": "open", "verified": True, "official": "https://one.utmb.world/", "location": "Japan", "continent": "Asia"}, **kwargs)
 
 
 def result(items=None, sources=None, members=None):
@@ -22,6 +23,20 @@ def result(items=None, sources=None, members=None):
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_utmb_requires_official_asian_continent(self):
+        for continent in ["Asia", " asia "]:
+            self.assertTrue(eligible(item(continent=continent), NOW))
+        for continent in ["Europe", "Oceania", "North America", "", None]:
+            self.assertFalse(eligible(item(continent=continent, location="Japan"), NOW))
+
+    def test_a_class_requires_jiangsu_zhejiang_or_shanghai_directory_province(self):
+        for province in ["江苏", "浙江省", "上海市"]:
+            self.assertTrue(eligible(item(category="caa", province=province), NOW))
+        for province in ["安徽", "北京", "江西", "", None]:
+            self.assertFalse(eligible(item(category="caa", province=province, location="上海赞助商"), NOW))
+        self.assertTrue(in_scope(item(category="brand", location="安徽黄山", in_region=True)))
+        self.assertTrue(in_scope(item(category="wtm", continent=None)))
+
     def test_same_edition_changes_and_added_groups_never_notify_again(self):
         state = {}
         self.assertEqual(len(merge_discoveries(state, [item()], NOW)), 1)
@@ -83,6 +98,33 @@ class DiscoveryTests(unittest.TestCase):
 
 
 class SourceTests(unittest.TestCase):
+    def test_collector_skips_out_of_scope_detail_pages_on_both_marathon_channels(self):
+        events = [dict(tenant=t, title=t, dateBegin="2027-03-01", continent=c, url=f"https://{t}.utmb.world")
+                  for t, c in [("asian", "Asia"), ("montblanc", "Europe"), ("unknown", None)]]
+        rows = [dict(id=f"caa:{i}", name=f"2027{name}马拉松", edition="2027", category="A", province=p)
+                for i, (name, p) in enumerate([("上海", "上海"), ("杭州", "浙江"), ("南京", "江苏"), ("合肥", "安徽"), ("北京", "北京")])]
+        domestic = [dict(id=r["id"], name=r["name"], year="2027", raceMoment="2027-03-01", registration={"opensAt": "2026-11-01"}) for r in rows]
+        cards = [dict(name=r["name"], date="2027-03-01", url=f"https://reg.zuicool.com/{i}", text=r["province"]) for i, r in enumerate(rows)]
+        class Client:
+            def get(self, *args, **kwargs):
+                return "unused fixture"
+        with patch.object(source_module, "utmb_index", return_value=events), \
+             patch.object(source_module, "inview_events", return_value=domestic), \
+             patch.object(source_module, "directory_rows", return_value=rows), \
+             patch.object(source_module, "zui_cards", return_value=cards), \
+             patch.object(source_module, "utmb_event", return_value=[]) as utmb, \
+             patch.object(source_module, "caa_item", return_value=[]) as caa, \
+             patch.object(source_module, "zui_detail", return_value=[]) as zui, \
+             patch.object(source_module, "member_catalog", return_value=[]), \
+             patch.object(source_module, "fuji_items", return_value=[]), \
+             patch.object(source_module, "hk_items", return_value=[]), \
+             patch.object(source_module, "arc_items", return_value=[]), \
+             patch.object(source_module, "brand_article_items", return_value=[]):
+            source_module.collect(NOW, Client())
+        self.assertEqual([c.args[1]["tenant"] for c in utmb.call_args_list], ["asian"])
+        self.assertEqual({c.args[2]["province"] for c in caa.call_args_list}, {"上海", "江苏", "浙江"})
+        self.assertEqual({c.args[2]["province"] for c in zui.call_args_list}, {"上海", "江苏", "浙江"})
+
     def test_public_wordpress_api_can_recover_a_blocked_official_page(self):
         blocked = requests.Response()
         blocked.status_code = 403

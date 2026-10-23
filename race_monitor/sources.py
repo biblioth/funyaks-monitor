@@ -17,7 +17,7 @@ import requests
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
 
-from .core import CST, clean, normalized_name, safe_url, stamp
+from .core import CST, clean, in_scope, normalized_name, safe_url, stamp
 
 UTMB_URL = "https://utmb.world/en/utmb-world-series-events"
 INVIEW_URL = "https://inview.run/"
@@ -185,6 +185,7 @@ def utmb_event(client, event):
         status = "closed"
     return [{"id": f"utmb:{event['tenant']}:{begin[:4]}", "series_id": f"utmb:{event['tenant']}", "edition": begin[:4],
              "name": f"{begin[:4]} {clean(current.get('name') or event['title'])}", "category": "utmb", "date": begin, "date_end": end,
+             "continent": event.get("continent"),
              "location": clean(f"{event.get('country', '')} · {event.get('placeName', '')}"), "groups": "；".join(groups)[:1600] or "／".join(event.get("raceCategories", [])),
              "status": status, "registration": safe_url(registration), "official": url, "source": UTMB_URL,
              "verified": True, "priority": 0}]
@@ -272,6 +273,7 @@ def caa_item(client, e, row):
     if e.get("status") in {"closed", "past", "ended", "soldout"}:
         status = "closed"
     return [{"id": row["id"], "series_id": "caa:" + normalized_name(row["name"]), "edition": row["edition"], "name": e["name"], "category": "caa",
+             "province": row["province"],
              "date": e.get("raceMoment"), "location": f"{e.get('province', '')}·{e.get('city', '')}", "groups": "／".join(e.get("disciplines", [])),
              "status": status, "opens": reg.get("opensAt"), "closes": reg.get("closesAt"),
              "qualification": "请核对当届官方报名须知；报名时间由赛历线索与官方公告交叉核验",
@@ -447,7 +449,7 @@ def zui_detail(client, card, row=None):
             "closes": closes, "groups": "；".join(tables)[:1000], "status": card["status"], "official": card["url"], "registration": card["url"], "source": ZUI_URL,
             "method": "先到先得" if "先报先得" in text or "先到先得" in text else None, "verified": bool(row), "in_region": bool(REGION.search(location)), "priority": 2}
     if row:
-        item.update(certification=f"{row['edition']}田协目录A类（第{row['page']}页；计划类别）", evidence=row["evidence"], series_id="caa:" + normalized_name(row["name"]))
+        item.update(province=row["province"], certification=f"{row['edition']}田协目录A类（第{row['page']}页；计划类别）", evidence=row["evidence"], series_id="caa:" + normalized_name(row["name"]))
     else:
         # Only an explicit organizer/sponsor relationship, not a brand keyword in
         # the title or an ad elsewhere on the page, is enough evidence to notify.
@@ -600,7 +602,7 @@ def collect(now, client=None):
 
     index = run("utmb:index", lambda: utmb_index(client.get(UTMB_URL)))
     for event in index or []:
-        if event.get("dateEnd", event["dateBegin"]) >= now.date().isoformat():
+        if in_scope(dict(event, category="utmb")) and event.get("dateEnd", event["dateBegin"]) >= now.date().isoformat():
             tasks.append((f"utmb:{event['tenant']}", lambda e=event: utmb_event(client, e)))
     tasks.extend([("wtm:fuji", lambda: fuji_items(client)), ("wtm:hk100", lambda: hk_items(client)),
                   ("brand:arcteryx", lambda: arc_items(client)),
@@ -622,7 +624,7 @@ def collect(now, client=None):
         row = match_directory(e.get("name", ""), e.get("year"), registry)
         reg = e.get("registration", {})
         deadline = stamp(reg.get("closesAt"))
-        if (row and row["category"] == "A" and e.get("status") != "closed"
+        if (row and row["category"] == "A" and in_scope(dict(row, category="caa")) and e.get("status") != "closed"
                 and (deadline is None or deadline >= now)
                 and (e.get("raceMoment") or "") >= now.date().isoformat()
                 and (reg.get("opensAt") or reg.get("closesAt"))):
@@ -633,8 +635,9 @@ def collect(now, client=None):
             continue
         year = card["date"][:4]
         row = match_directory(card["name"], year, registry)
-        if row and row["category"] == "A" or BRAND.search(card["name"]) and REGION.search(card["text"]) and SPORT.search(card["name"]):
-            tasks.append(("entry:" + urlsplit(card["url"]).path.strip("/"), lambda c=card, r=row: zui_detail(client, c, r if r and r["category"] == "A" else None)))
+        scoped_row = row if row and row["category"] == "A" and in_scope(dict(row, category="caa")) else None
+        if scoped_row or BRAND.search(card["name"]) and REGION.search(card["text"]) and SPORT.search(card["name"]):
+            tasks.append(("entry:" + urlsplit(card["url"]).path.strip("/"), lambda c=card, r=scoped_row: zui_detail(client, c, r)))
     with ThreadPoolExecutor(max_workers=6) as pool:
         futures = {pool.submit(fn): name for name, fn in tasks}
         for future in as_completed(futures):
@@ -643,9 +646,9 @@ def collect(now, client=None):
                 found = future.result()
                 reports[name] = {"ok": True, "checked_at": now.isoformat(), "items": len(found)}
                 for item in found:
-                    if item.get("verified"):
+                    if item.get("verified") and in_scope(item):
                         items.append(item)
-                    else:
+                    elif not item.get("verified"):
                         leads.append({k: item.get(k) for k in ["name", "source", "official", "brand"]})
             except Exception as e:
                 reports[name] = {"ok": False, "error": clean(str(e))[:220], "checked_at": now.isoformat()}

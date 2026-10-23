@@ -52,10 +52,22 @@ def display_time(value):
     return d.strftime("%Y-%m-%d %H:%M") if d else clean(value)
 
 
+def in_scope(item):
+    # Use official catalog geography, never sponsor names or incidental city
+    # mentions. Unknown geography is held back until it can be verified.
+    if item.get("category") == "utmb":
+        return clean(item.get("continent")).casefold() == "asia"
+    if item.get("category") == "caa":
+        return clean(item.get("province")) in {"江苏", "江苏省", "浙江", "浙江省", "上海", "上海市"}
+    if item.get("category") == "brand":
+        return bool(item.get("in_region"))
+    return item.get("category") == "wtm"
+
+
 def eligible(item, now):
     if item.get("category") not in CATEGORIES or not item.get("verified"):
         return False
-    if item.get("category") == "brand" and not item.get("in_region"):
+    if not in_scope(item):
         return False
     if item.get("status") in {"closed", "sold_out", "cancelled", "past", "unknown"}:
         return False
