@@ -100,6 +100,22 @@ class DiscoveryTests(unittest.TestCase):
 
 
 class SourceTests(unittest.TestCase):
+    def test_blocked_hk100_can_recover_through_official_isolated_browser(self):
+        class Blocked:
+            def get(self, url):
+                raise source_module.SourceError("HTTP 403")
+        home = '<h2>2027 Events</h2><p>21 January 2027</p><a href="https://raceresults.com.hk/event/476">Register</a>'
+        entry = '<h2>HONG KONG 100 ENTRY PROCEDURES</h2><h3>Charity Places</h3>'
+        with patch.object(source_module, "hk_browser_pages", return_value=[home, entry]):
+            value = source_module.hk_items(Blocked())[0]
+        self.assertEqual(value["edition"], "2027")
+        self.assertEqual(value["verification_method"], "official_browser")
+        self.assertEqual(value["status"], "announced")
+        self.assertEqual(value["registration"], "https://raceresults.com.hk/event/476")
+        with patch.object(source_module, "hk_browser_pages", return_value=['<title>Just a moment</title>', entry]):
+            with self.assertRaises(source_module.SourceError):
+                source_module.hk_items(Blocked())
+
     def test_verified_catalog_snapshot_is_exact_and_cannot_certify_another_edition(self):
         cached = cached_directory(source_module.DIRECTORY_URL)
         self.assertEqual(len(cached["rows"]), 489)

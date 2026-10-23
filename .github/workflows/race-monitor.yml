@@ -43,6 +43,9 @@ jobs:
           cache: pip
           cache-dependency-path: race-requirements.txt
       - run: pip install -r race-requirements.txt
+      - name: Install isolated browser for the official HK100 fallback
+        if: inputs.network_probe != true
+        run: python -m playwright install --with-deps chromium
       - name: Probe restricted public sources without sending notifications
         if: inputs.network_probe == true
         run: |
@@ -76,7 +79,12 @@ jobs:
           PY
       - name: Collect daily discoveries or compensate a missing batch
         if: inputs.network_probe != true
-        run: python -m race_monitor.service ${{ inputs.preview && '--preview' || '' }}
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a python -m race_monitor.service ${{ inputs.preview && '--preview' || '' }}
+          else
+            python -m race_monitor.service ${{ inputs.preview && '--preview' || '' }}
+          fi
       - name: Preserve source coverage report
         if: always()
         uses: actions/upload-artifact@v4

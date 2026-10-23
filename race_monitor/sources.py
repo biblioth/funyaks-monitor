@@ -19,6 +19,7 @@ from pypdf import PdfReader
 
 from .core import CST, clean, in_scope, normalized_name, safe_url, stamp
 from .catalog import cached_directory, certification, directory_snapshot
+from .browser import hk_browser_pages
 
 UTMB_URL = "https://utmb.world/en/utmb-world-series-events"
 INVIEW_URL = "https://inview.run/"
@@ -337,14 +338,27 @@ def fuji_items(client):
 
 
 def hk_items(client):
+    try:
+        home = client.get("https://hk100ultra.com/")
+        entry = client.get("https://hk100ultra.com/entry/")
+        return hk_page_items(home, entry, "official_http")
+    except SourceError as original:
+        try:
+            home, entry = hk_browser_pages()
+            return hk_page_items(home, entry, "official_browser")
+        except Exception as e:
+            raise SourceError(f"{original}；隔离浏览器备用失败（{type(e).__name__}）") from None
+
+
+def hk_page_items(home, entry_html, transport):
     url = "https://hk100ultra.com/"
-    s = soup(client.get(url))
+    s = soup(home)
     text = s.get_text(" ", strip=True)
     edition = re.search(r"(20\d{2})\s+(?:Edition|Events)", text)
     if not edition:
         raise SourceError("港百官网缺少当届年份")
     entry_url = urljoin(url, "entry/")
-    entry = soup(client.get(entry_url)).get_text(" ", strip=True)
+    entry = soup(entry_html).get_text(" ", strip=True)
     if "ENTRY PROCEDURES" not in entry or "Charity" not in entry:
         raise SourceError("港百报名规则结构已变化")
     charity = next((safe_url(urljoin(url, a["href"])) for a in s.select("a[href]") if "CHARITY REGISTRATION" in a.get_text().upper()), "")
@@ -357,7 +371,7 @@ def hk_items(client):
              "date": date, "location": "中国香港", "groups": "HK100／The Half／The Third／Grand Sam",
              "status": "charity" if charity else "announced", "method": "普通名额抽签；慈善名额另行报名，实际余位请在报名平台核实",
              "qualification": "年龄及越野经验要求请查看当届规程；出现报名入口不代表当前开放或有剩余名额", "official": entry_url, "registration": charity or published_entry or entry_url,
-             "source": url, "verified": True, "priority": 0}]
+             "source": url, "verified": True, "verification_method": transport, "priority": 0}]
 
 
 def wtm_members(html, evidence=WTM_URL):
