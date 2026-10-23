@@ -131,9 +131,11 @@ class MarathonTests(unittest.TestCase):
 
     def test_source_migration_preserves_an_already_notified_edition(self):
         current = inspect(Client({card()["url"]: reg_html()}), card(), [], self.reader({}))[0]
-        old = dict(current, id="caa:2027:100", series_id="old-official-id", name="2027冠名赞助商杭州半程马拉松", official=current["registration"])
+        old = dict(current, id="caa:2027:100", series_id="old-official-id", name="2027冠名赞助商杭州半程马拉松", official=current["registration"] + "?hmsr=mainbanner", registration=current["registration"] + "?hmsr=mainbanner")
         state = {"known": {old["id"]: old}}
         self.assertEqual(merge_discoveries(state, [current], NOW), [])
+        next_year = dict(current, id=current["id"] + ":2028", edition="2028", name="2028杭州半程马拉松", date="2028-03-01")
+        self.assertEqual(len(merge_discoveries(state, [next_year], NOW)), 1)
 
     def test_postponement_note_cannot_override_the_actual_list_date(self):
         html = '<div class="reg-race-block"><a class="race-name-a" href="https://reg.zuicool.com/123">2027杭州半程马拉松<span class="label">报名中</span></a><small>从2026年10月1日延期</small><p>2027年3月1日<br>浙江・杭州</p></div>'

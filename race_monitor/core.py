@@ -94,8 +94,12 @@ def find_identity(item, known):
             return key
         a, b = safe_url(item.get("official")), safe_url(old.get("official"))
         if item.get("category") == "caa":
-            urls = {safe_url(item.get(k)) for k in ["official", "registration"]} & {safe_url(old.get(k)) for k in ["official", "registration"]}
-            if any(urlsplit(u).hostname == "reg.zuicool.com" and re.fullmatch(r"/\d+/?", urlsplit(u).path) for u in urls if u):
+            def entries(value):
+                parsed = [urlsplit(safe_url(value.get(k))) for k in ["official", "registration"]]
+                return {(p.hostname, p.path.rstrip("/")) for p in parsed if p.hostname == "reg.zuicool.com" and re.fullmatch(r"/\d+/?", p.path)}
+            # Tracking query strings do not create a different signup. Edition
+            # equality above still protects the next year's reused platform ID.
+            if entries(item) & entries(old):
                 return key
         same_page = a and a == b and urlsplit(a).path not in {"", "/"}
         same_date = item.get("date") and item.get("date") == old.get("date")
