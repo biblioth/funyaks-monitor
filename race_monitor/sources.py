@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 from pypdf import PdfReader
 
 from .core import CST, clean, in_scope, normalized_name, safe_url, stamp
+from .catalog import cached_directory, certification, directory_snapshot
 
 UTMB_URL = "https://utmb.world/en/utmb-world-series-events"
 INVIEW_URL = "https://inview.run/"
@@ -278,7 +279,7 @@ def caa_item(client, e, row):
              "status": status, "opens": reg.get("opensAt"), "closes": reg.get("closesAt"),
              "qualification": "请核对当届官方报名须知；报名时间由赛历线索与官方公告交叉核验",
              "method": e.get("lottery", {}).get("selection", {}).get("description"), "official": verified_url, "source": INVIEW_URL,
-             "registration": verified_url, "evidence": row["evidence"], "certification": f"{row['edition']}田协目录A类（第{row['page']}页；计划类别）", "verified": True, "priority": 3}]
+             "registration": verified_url, "evidence": row["evidence"], "certification": certification(row), "verified": True, "priority": 3}]
 
 
 def chinese_dates(text, default_year=None):
@@ -449,7 +450,7 @@ def zui_detail(client, card, row=None):
             "closes": closes, "groups": "；".join(tables)[:1000], "status": card["status"], "official": card["url"], "registration": card["url"], "source": ZUI_URL,
             "method": "先到先得" if "先报先得" in text or "先到先得" in text else None, "verified": bool(row), "in_region": bool(REGION.search(location)), "priority": 2}
     if row:
-        item.update(province=row["province"], certification=f"{row['edition']}田协目录A类（第{row['page']}页；计划类别）", evidence=row["evidence"], series_id="caa:" + normalized_name(row["name"]))
+        item.update(province=row["province"], certification=certification(row), evidence=row["evidence"], series_id="caa:" + normalized_name(row["name"]))
     else:
         # Only an explicit organizer/sponsor relationship, not a brand keyword in
         # the title or an ad elsewhere on the page, is enough evidence to notify.
@@ -587,8 +588,9 @@ def brand_article_items(client, index_url, brand, mode):
     return items
 
 
-def collect(now, client=None):
+def collect(now, client=None, directory_cache=None):
     client = client or Client()
+    directory_cache = dict(directory_cache or {})
     items, members, reports, tasks, registry, leads = [], [], {}, [], [], []
 
     def run(name, fn):
@@ -618,7 +620,21 @@ def collect(now, client=None):
             if "马拉松赛事目录" in source.get("label", "") and u.endswith(".pdf") and safe_url(u):
                 pdf_urls.add(u)
     for url in sorted(pdf_urls):
-        rows = run("caa:directory:" + urlsplit(url).path.split("/")[-1], lambda u=url: directory_rows(client.get(u, binary=True), u))
+        name = "caa:directory:" + urlsplit(url).path.split("/")[-1]
+        def load_directory(u=url):
+            data = client.get(u, binary=True)
+            rows = directory_rows(data, u)
+            directory_cache[u] = directory_snapshot(u, data, rows, now)
+            return rows
+        rows = run(name, load_directory)
+        if rows is None:
+            cached = cached_directory(url, directory_cache.get(url))
+            if cached:
+                rows = cached["rows"]
+                # Keep ok=false: a usable historical plan does not mean this
+                # run verified the latest directory or any signup status.
+                reports[name]["fallback"] = {"kind": "verified_snapshot", "edition": cached["edition"],
+                                              "verified_at": cached["verified_at"], "rows": len(rows)}
         registry.extend(rows or [])
     for e in events or []:
         row = match_directory(e.get("name", ""), e.get("year"), registry)
@@ -652,5 +668,5 @@ def collect(now, client=None):
                         leads.append({k: item.get(k) for k in ["name", "source", "official", "brand"]})
             except Exception as e:
                 reports[name] = {"ok": False, "error": clean(str(e))[:220], "checked_at": now.isoformat()}
-    return {"items": items, "members": members, "sources": reports, "registry_count": len(registry), "a_class_count": sum(r["category"] == "A" for r in registry),
+    return {"items": items, "members": members, "sources": reports, "directory_cache": directory_cache, "registry_count": len(registry), "a_class_count": sum(r["category"] == "A" for r in registry),
             "review_leads": leads, "gaps": ["品牌会员小程序、微信群及仅图片发布的招募尚未接入", "国内赛事发现依赖公开赛历与最酷补漏，未覆盖所有组委会公众号", "WTM总站受限时使用港百／环富士山官方成员清单，成员同步可能延迟"]}

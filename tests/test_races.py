@@ -2,11 +2,13 @@ import copy
 import json
 import unittest
 import requests
+from contextlib import ExitStack
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from race_monitor.core import CST, digest_events, merge_discoveries, member_events, eligible, display_time, in_scope
 from race_monitor import sources as source_module
+from race_monitor.catalog import cached_directory, certification, validate_snapshot, SNAPSHOT
 from race_monitor.service import execute, plan
 from race_monitor.sources import Client, utmb_index, utmb_event, next_data, wtm_members, directory_rows, match_directory, arcteryx_records, zui_cards, SourceError
 
@@ -98,6 +100,34 @@ class DiscoveryTests(unittest.TestCase):
 
 
 class SourceTests(unittest.TestCase):
+    def test_verified_catalog_snapshot_is_exact_and_cannot_certify_another_edition(self):
+        cached = cached_directory(source_module.DIRECTORY_URL)
+        self.assertEqual(len(cached["rows"]), 489)
+        row = next(r for r in cached["rows"] if r["category"] == "A" and r["province"] == "上海")
+        self.assertIn("在线更新本轮未核实", certification(row))
+        self.assertIsNone(match_directory(row["name"], "2027", cached["rows"]))
+        self.assertIsNone(cached_directory("https://example.com/new-2027-catalog.pdf"))
+        corrupted = json.loads(SNAPSHOT.read_text())
+        corrupted["rows"][0]["category"] = "B"
+        self.assertIsNone(validate_snapshot(corrupted, source_module.DIRECTORY_URL))
+
+    def test_catalog_timeout_keeps_marathon_discovery_and_reports_degraded_coverage(self):
+        class Client:
+            def get(self, url, binary=False):
+                if binary:
+                    raise source_module.SourceError("catalog connection timed out")
+                return "unused fixture"
+        with ExitStack() as stack:
+            for name in ["utmb_index", "inview_events", "zui_cards", "member_catalog", "fuji_items", "hk_items", "arc_items", "brand_article_items"]:
+                stack.enter_context(patch.object(source_module, name, return_value=[]))
+            collected = source_module.collect(NOW, Client())
+        self.assertEqual(collected["registry_count"], 489)
+        directory = next(v for k, v in collected["sources"].items() if k.startswith("caa:directory:"))
+        self.assertFalse(directory["ok"])
+        self.assertEqual(directory["fallback"]["kind"], "verified_snapshot")
+        _, events = plan({}, collected, NOW)
+        self.assertIn("报名信息仍实时读取", events[0]["payload"]["message"])
+
     def test_collector_skips_out_of_scope_detail_pages_on_both_marathon_channels(self):
         events = [dict(tenant=t, title=t, dateBegin="2027-03-01", continent=c, url=f"https://{t}.utmb.world")
                   for t, c in [("asian", "Asia"), ("montblanc", "Europe"), ("unknown", None)]]
@@ -107,7 +137,7 @@ class SourceTests(unittest.TestCase):
         cards = [dict(name=r["name"], date="2027-03-01", url=f"https://reg.zuicool.com/{i}", text=r["province"]) for i, r in enumerate(rows)]
         class Client:
             def get(self, *args, **kwargs):
-                return "unused fixture"
+                return b"unused fixture" if kwargs.get("binary") else "unused fixture"
         with patch.object(source_module, "utmb_index", return_value=events), \
              patch.object(source_module, "inview_events", return_value=domestic), \
              patch.object(source_module, "directory_rows", return_value=rows), \
@@ -203,19 +233,32 @@ class StoreTests(unittest.TestCase):
             self.events.extend(copy.deepcopy(events))
             return version + 1
 
+    def test_latest_successful_directory_is_persisted_and_preferred_next_day(self):
+        saved = json.loads(SNAPSHOT.read_text())
+        saved["verified_at"] = NOW.isoformat()
+        store = self.MemoryStore()
+        first = dict(result(), directory_cache={saved["source"]: saved})
+        execute(store, NOW, collector=lambda now, **kwargs: first)
+        def next_day(now, directory_cache):
+            cached = cached_directory(saved["source"], directory_cache[saved["source"]])
+            self.assertEqual(cached["verified_at"], NOW.isoformat())
+            return result(items=[])
+        execute(store, NOW + timedelta(days=1), collector=next_day)
+        self.assertEqual(store.value["state"]["directory_cache"][saved["source"]], saved)
+
     def test_watchdog_does_not_scan_twice_after_completed_daily_batch(self):
         store = self.MemoryStore()
-        execute(store, NOW, collector=lambda now: result())
-        response = execute(store, NOW + timedelta(minutes=30), collector=lambda now: self.fail("should not collect"))
+        execute(store, NOW, collector=lambda now, **kwargs: result())
+        response = execute(store, NOW + timedelta(minutes=30), collector=lambda now, **kwargs: self.fail("should not collect"))
         self.assertEqual(response["status"], "already_completed")
         self.assertEqual(len(store.events), 1)
 
     def test_crashed_batch_can_resume_after_lease_and_still_alert_once(self):
         store = self.MemoryStore()
         with self.assertRaises(RuntimeError):
-            execute(store, NOW, collector=lambda now: (_ for _ in ()).throw(RuntimeError("source crash")))
+            execute(store, NOW, collector=lambda now, **kwargs: (_ for _ in ()).throw(RuntimeError("source crash")))
         self.assertEqual(execute(store, NOW + timedelta(minutes=10))["status"], "running")
-        execute(store, NOW + timedelta(minutes=30), collector=lambda now: result())
+        execute(store, NOW + timedelta(minutes=30), collector=lambda now, **kwargs: result())
         self.assertEqual(len(store.events), 1)
 
     def test_state_and_new_notifications_are_not_lost_when_commit_fails(self):
@@ -227,8 +270,8 @@ class StoreTests(unittest.TestCase):
             return actual(version, state, events)
         with patch.object(store, "commit", side_effect=fail_final):
             with self.assertRaises(RuntimeError):
-                execute(store, NOW, collector=lambda now: result())
-        execute(store, NOW + timedelta(minutes=30), collector=lambda now: result())
+                execute(store, NOW, collector=lambda now, **kwargs: result())
+        execute(store, NOW + timedelta(minutes=30), collector=lambda now, **kwargs: result())
         self.assertEqual(len(store.events), 1)
 
     def test_partial_failure_does_not_wipe_known_data_or_repeat_error_daily(self):

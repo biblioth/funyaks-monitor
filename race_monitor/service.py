@@ -57,6 +57,9 @@ def plan(state, result, now):
         for name, value in sorted(failed.items()):
             lines.extend([f"\n影响来源：{name}", f"原因：{value.get('error', '读取失败')}",
                           f"最后成功读取：{value.get('last_success_at') or '尚无成功记录'}"])
+            if value.get("fallback", {}).get("kind") == "verified_snapshot":
+                fallback = value["fallback"]
+                lines.append(f"备用处理：使用{fallback['verified_at']}核验的{fallback['edition']}年目录快照继续核对A类；目录在线更新尚未核实，报名信息仍实时读取。")
         # Bound diagnostics; full source status remains in D1 and the run artifact.
         message = "\n".join(lines)[:4200] + "\n\n其余来源的已确认新增照常推送；未接入的小程序另列为覆盖缺口。"
         events.append({"key": f"races:degraded:{now:%Y%m%d}:{signature}", "type": "race_source_degraded", "payload": {"message": message}})
@@ -64,6 +67,7 @@ def plan(state, result, now):
         events.append({"key": f"races:recovered:{now:%Y%m%d}", "type": "race_source_recovered",
                        "payload": {"message": f"✅ 赛事监控覆盖已恢复\n核验时间：{now:%Y-%m-%d %H:%M}（北京时间）\n本轮 {good}/{len(current)} 个已启用来源读取成功。"}})
     state.update(sources=current, last_completed_at=now.isoformat(), last_run_date=now.date().isoformat(), run=None,
+                 directory_cache=result.get("directory_cache", state.get("directory_cache", {})),
                  gaps=result.get("gaps", []), registry_count=result.get("registry_count", 0), a_class_count=result.get("a_class_count", 0), review_leads=result.get("review_leads", []))
     return state, events
 
@@ -78,7 +82,7 @@ def execute(store, now, collector=collect):
         return {"status": "running", "started_at": started.isoformat()}
     state["run"] = {"date": now.date().isoformat(), "started_at": now.isoformat()}
     version = store.commit(snapshot["version"], state, [])
-    result = collector(now)
+    result = collector(now, directory_cache=state.get("directory_cache", {}))
     if not any(v["ok"] for v in result["sources"].values()):
         raise RuntimeError("全部来源读取失败；未更新活动基线")
     state, events = plan(state, result, now)
