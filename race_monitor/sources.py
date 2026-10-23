@@ -650,4 +650,4 @@ def collect(now, client=None):
             except Exception as e:
                 reports[name] = {"ok": False, "error": clean(str(e))[:220], "checked_at": now.isoformat()}
     return {"items": items, "members": members, "sources": reports, "registry_count": len(registry), "a_class_count": sum(r["category"] == "A" for r in registry),
-            "review_leads": leads, "gaps": ["品牌会员小程序、微信群及仅图片发布的招募尚未接入", "国内赛事发现依赖公开赛历与最酷补漏，未覆盖所有组委会公众号", "WTM总站受限时使用港百官方成员清单，成员同步可能延迟"]}
+            "review_leads": leads, "gaps": ["品牌会员小程序、微信群及仅图片发布的招募尚未接入", "国内赛事发现依赖公开赛历与最酷补漏，未覆盖所有组委会公众号", "WTM总站受限时使用港百／环富士山官方成员清单，成员同步可能延迟"]}
