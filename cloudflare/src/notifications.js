@@ -1,4 +1,3 @@
-import { renderRaceMessage } from "./race-messages.js";
 
 function configuredPushPlusChannels(env) {
   if (!env.PUSHPLUS_TOKEN) return [];
@@ -26,7 +25,6 @@ function truncate(value, length = 700) {
 }
 
 export function renderEvent(event) {
-  if (event.type?.startsWith("race_")) return renderRaceMessage(event);
   const payload = event.payload || {};
   if (event.type === "ocean_availability") {
     return {

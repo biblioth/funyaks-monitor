@@ -241,6 +241,7 @@ export async function markDeliveryFailed(db, deliveryId, error, failedAt) {
 }
 
 export async function cleanup(db, cutoff) {
+  // Retain migrated race history as a read-only rollback archive.
   await db.prepare("DELETE FROM monitor_checks WHERE scheduled_at < ?").bind(cutoff).run();
   await db.prepare("DELETE FROM chairman_checks WHERE scheduled_at < ?").bind(cutoff).run();
   await db.prepare("DELETE FROM ocean_checks WHERE scheduled_at < ?").bind(cutoff).run();
