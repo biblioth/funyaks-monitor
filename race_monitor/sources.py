@@ -17,12 +17,12 @@ import requests
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
 
-from .core import CST, clean, in_scope, normalized_name, safe_url, stamp
-from .catalog import cached_directory, certification, directory_snapshot
+from .core import CST, clean, eligible, in_scope, normalized_name, safe_url, stamp
+from .catalog import cached_directory, certification
 from .browser import hk_browser_pages
+from .marathons import discover as marathon_catalog, candidates as marathon_candidates, inspect as marathon_detail
 
 UTMB_URL = "https://utmb.world/en/utmb-world-series-events"
-INVIEW_URL = "https://inview.run/"
 ZUI_URL = "https://reg.zuicool.com/"
 WTM_URL = "https://hk100ultra.com/world-trail-majors/"
 DIRECTORY_URL = "https://file.shuzixindong.com/changzheng/84554/fddbe29f6e434035918201d2a17dbcac.pdf"
@@ -193,27 +193,6 @@ def utmb_event(client, event):
              "verified": True, "priority": 0}]
 
 
-def decode_astro(value):
-    kind, value = value
-    if kind == 0:
-        return {k: decode_astro(v) for k, v in value.items()} if isinstance(value, dict) else value
-    if kind == 1:
-        return [decode_astro(v) for v in value]
-    return value
-
-
-def inview_events(html):
-    s = BeautifulSoup(html, "html.parser")
-    for tag in s.select("astro-island[props]"):
-        try:
-            data = decode_astro([0, json.loads(tag["props"])])
-            if isinstance(data.get("calendar", {}).get("events"), list):
-                return data["calendar"]["events"]
-        except (ValueError, TypeError, KeyError):
-            continue
-    raise SourceError("国内赛历缺少可解析的活动数据")
-
-
 def directory_rows(data, url):
     if not data.startswith(b"%PDF"):
         raise SourceError("田协目录响应不是 PDF")
@@ -245,42 +224,6 @@ def match_directory(name, year, rows):
     exact = [x for x in rows if x["edition"] == str(year) and normalized_name(x["name"]) == n]
     # Don't fuzzy-match A-class certification: similar names may be different races.
     return exact[0] if len(exact) == 1 else None
-
-
-def caa_item(client, e, row):
-    sources = e.get("sources", [])
-    official = [x for x in sources if x.get("kind") in {"organizer", "government"} and safe_url(x.get("url"))]
-    # Aggregators discover announcements; public primary pages must corroborate them.
-    preferred = sorted(official, key=lambda x: not bool(re.search(r"报名|规程|registration", x.get("label", ""), re.I)))
-    if not preferred:
-        return []
-    verified_url = None
-    for candidate in preferred[:3]:
-        body = soup(client.get(candidate["url"])).get_text(" ", strip=True)
-        if str(e["year"]) in body and re.search(r"报名|registration|entry", body, re.I) and len(body) > 150:
-            verified_url = candidate["url"]
-            break
-    if not verified_url:
-        raise SourceError("当届报名公告未能从官方来源核实")
-    reg = dict(e.get("registration", {}))
-    # An aggregator timestamp is only displayed if the corresponding month/day
-    # also appears in the primary announcement we actually fetched.
-    for field in ["opensAt", "closesAt"]:
-        value = str(reg.get(field) or "")
-        if len(value) >= 10:
-            month, day = int(value[5:7]), int(value[8:10])
-            if value[:10] not in body and not re.search(rf"{month}\s*月\s*{day}\s*日", body):
-                reg[field] = None
-    status = "open" if e.get("status") in {"open", "registering"} else "announced"
-    if e.get("status") in {"closed", "past", "ended", "soldout"}:
-        status = "closed"
-    return [{"id": row["id"], "series_id": "caa:" + normalized_name(row["name"]), "edition": row["edition"], "name": e["name"], "category": "caa",
-             "province": row["province"],
-             "date": e.get("raceMoment"), "location": f"{e.get('province', '')}·{e.get('city', '')}", "groups": "／".join(e.get("disciplines", [])),
-             "status": status, "opens": reg.get("opensAt"), "closes": reg.get("closesAt"),
-             "qualification": "请核对当届官方报名须知；报名时间由赛历线索与官方公告交叉核验",
-             "method": e.get("lottery", {}).get("selection", {}).get("description"), "official": verified_url, "source": INVIEW_URL,
-             "registration": verified_url, "evidence": row["evidence"], "certification": certification(row), "verified": True, "priority": 3}]
 
 
 def chinese_dates(text, default_year=None):
@@ -438,11 +381,15 @@ def zui_cards(html):
         tag = a.select_one(".label")
         title = clean(a.get_text(" ", strip=True).replace(tag.get_text() if tag else "", ""))
         text = card.get_text(" ", strip=True)
-        dates = chinese_dates(text)
+        info = card.select_one("p")
+        fields = list(info.stripped_strings) if info else []
+        dates = chinese_dates(fields[0] if fields else text)
+        location = clean(fields[-1]) if len(fields) > 1 else ""
         cards.append({"name": title, "url": urljoin(ZUI_URL, a["href"]), "text": text, "date": dates[0] if dates else None,
-                      "status": "open" if tag and tag.get_text(strip=True) == "报名中" else "closed"})
-    if not cards:
-        raise SourceError("最酷赛事列表为空或结构已变化")
+                      "location": location,
+                      "status": {"报名中": "open", "已截止": "closed", "已关闭": "closed", "已满": "sold_out", "报名预告": "preview", "即将报名": "preview"}.get(tag.get_text(strip=True) if tag else "", "unknown")})
+    if not cards or not any(c["date"] and c["location"] for c in cards):
+        raise SourceError("最酷赛事列表为空或未读到日期／地点，结构可能已变化")
     return cards
 
 
@@ -605,7 +552,7 @@ def brand_article_items(client, index_url, brand, mode):
 def collect(now, client=None, directory_cache=None):
     client = client or Client()
     directory_cache = dict(directory_cache or {})
-    items, members, reports, tasks, registry, leads = [], [], {}, [], [], []
+    items, members, reports, tasks, registry, leads, marathon_checks = [], [], {}, [], [], [], []
 
     def run(name, fn):
         try:
@@ -625,48 +572,26 @@ def collect(now, client=None, directory_cache=None):
                   ("brand:letour", lambda: brand_article_items(client, "https://www.letoursports.net/", "凯乐石合作赛事（朗途官方发布）", "letour"))])
     m = run("wtm:members", lambda: member_catalog(client))
     members.extend(m or [])
-    events = run("caa:discovery", lambda: inview_events(client.get(INVIEW_URL)))
-    pdf_urls = {DIRECTORY_URL}
-    for e in events or []:
-        for source in e.get("sources", []):
-            u = source.get("url", "")
-            if "马拉松赛事目录" in source.get("label", "") and u.endswith(".pdf") and safe_url(u):
-                pdf_urls.add(u)
-    for url in sorted(pdf_urls):
-        name = "caa:directory:" + urlsplit(url).path.split("/")[-1]
-        def load_directory(u=url):
-            data = client.get(u, binary=True)
-            rows = directory_rows(data, u)
-            directory_cache[u] = directory_snapshot(u, data, rows, now)
-            return rows
-        rows = run(name, load_directory)
-        if rows is None:
-            cached = cached_directory(url, directory_cache.get(url))
-            if cached:
-                rows = cached["rows"]
-                # Keep ok=false: a usable historical plan does not mean this
-                # run verified the latest directory or any signup status.
-                reports[name]["fallback"] = {"kind": "verified_snapshot", "edition": cached["edition"],
-                                              "verified_at": cached["verified_at"], "rows": len(rows)}
-        registry.extend(rows or [])
-    for e in events or []:
-        row = match_directory(e.get("name", ""), e.get("year"), registry)
-        reg = e.get("registration", {})
-        deadline = stamp(reg.get("closesAt"))
-        if (row and row["category"] == "A" and in_scope(dict(row, category="caa")) and e.get("status") != "closed"
-                and (deadline is None or deadline >= now)
-                and (e.get("raceMoment") or "") >= now.date().isoformat()
-                and (reg.get("opensAt") or reg.get("closesAt"))):
-            tasks.append(("caa:" + e["id"], lambda e=e, row=row: caa_item(client, e, row)))
+    # Annual catalog facts are optional evidence. Daily discovery never waits
+    # for a PDF download or an aggregator unrelated to the chosen platform.
+    auxiliary = {}
+    for url in sorted(set(directory_cache) | {DIRECTORY_URL}):
+        cached = cached_directory(url, directory_cache.get(url))
+        for row in (cached or {}).get("rows", []):
+            auxiliary[(row["edition"], row["id"])] = row
+    registry = list(auxiliary.values())
     cards = run("platform:zuicool", lambda: zui_cards(client.get(ZUI_URL)))
+    catalog, marathon_stats = marathon_catalog(client, now, run)
+    candidates = marathon_candidates(catalog, cards or [], now)
+    marathon_stats["regional_candidates"] = len(candidates)
+    for candidate in candidates:
+        name = "caa:zuicool:detail:" + urlsplit(candidate["url"]).path.strip("/").replace("/", ":")
+        tasks.append((name, lambda c=candidate: marathon_detail(client, c, registry, run)))
     for card in cards or []:
         if not card.get("date") or card["date"] < now.date().isoformat():
             continue
-        year = card["date"][:4]
-        row = match_directory(card["name"], year, registry)
-        scoped_row = row if row and row["category"] == "A" and in_scope(dict(row, category="caa")) else None
-        if scoped_row or BRAND.search(card["name"]) and REGION.search(card["text"]) and SPORT.search(card["name"]):
-            tasks.append(("entry:" + urlsplit(card["url"]).path.strip("/"), lambda c=card, r=scoped_row: zui_detail(client, c, r)))
+        if BRAND.search(card["name"]) and REGION.search(card["location"]) and SPORT.search(card["name"]):
+            tasks.append(("entry:" + urlsplit(card["url"]).path.strip("/"), lambda c=card: zui_detail(client, c)))
     with ThreadPoolExecutor(max_workers=6) as pool:
         futures = {pool.submit(fn): name for name, fn in tasks}
         for future in as_completed(futures):
@@ -675,12 +600,15 @@ def collect(now, client=None, directory_cache=None):
                 found = future.result()
                 reports[name] = {"ok": True, "checked_at": now.isoformat(), "items": len(found)}
                 for item in found:
+                    if item.get("category") == "caa":
+                        marathon_checks.append(item)
                     if item.get("verified") and in_scope(item):
                         items.append(item)
                     elif not item.get("verified"):
-                        leads.append({k: item.get(k) for k in ["name", "source", "official", "brand"]})
+                        leads.append({k: item.get(k) for k in ["id", "name", "category", "province", "source", "official", "brand", "reason", "certification_state"]})
             except Exception as e:
                 reports[name] = {"ok": False, "error": clean(str(e))[:220], "checked_at": now.isoformat()}
-    return {"items": items, "members": members, "sources": reports, "directory_cache": directory_cache, "registry_count": len(registry), "a_class_count": sum(r["category"] == "A" for r in registry),
+    marathon_stats.update(details_read=len(marathon_checks), verified=sum(bool(x["verified"]) for x in marathon_checks), pending=sum(not x["verified"] for x in marathon_checks), notify_eligible=sum(eligible(x, now) for x in marathon_checks), detail_failures=len(candidates) - len(marathon_checks))
+    return {"items": items, "members": members, "sources": reports, "marathon_coverage": marathon_stats, "directory_cache": directory_cache, "registry_count": len(registry), "a_class_count": sum(r["category"] == "A" for r in registry),
             "paused_sources": {"brand:kailas": {"since": "2026-10-23", "reason": "官网云端405，按用户选择暂用朗途／最酷补漏"}},
-            "review_leads": leads, "gaps": ["凯乐石官网暂停采集，暂用朗途／最酷补漏，官网独有活动可能遗漏", "品牌会员小程序、微信群及仅图片发布的招募尚未接入", "国内赛事发现依赖公开赛历与最酷补漏，未覆盖所有组委会公众号", "WTM总站受限时使用港百／环富士山官方成员清单，成员同步可能延迟"]}
+            "review_leads": leads, "gaps": ["凯乐石官网暂停采集，暂用朗途／最酷补漏，官网独有活动可能遗漏", "品牌会员小程序、微信群及仅图片发布的招募尚未接入", "马拉松发现以最酷列表及分页为主，平台未收录、仅海报信息及待核验A类条目可能漏检或延迟", "WTM总站受限时使用港百／环富士山官方成员清单，成员同步可能延迟"]}

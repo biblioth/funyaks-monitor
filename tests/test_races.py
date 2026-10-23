@@ -127,51 +127,43 @@ class SourceTests(unittest.TestCase):
         corrupted["rows"][0]["category"] = "B"
         self.assertIsNone(validate_snapshot(corrupted, source_module.DIRECTORY_URL))
 
-    def test_catalog_timeout_keeps_marathon_discovery_and_reports_degraded_coverage(self):
+    def test_daily_marathons_do_not_download_pdf_or_read_the_old_discovery_site(self):
+        calls = []
         class Client:
             def get(self, url, binary=False):
-                if binary:
-                    raise source_module.SourceError("catalog connection timed out")
+                calls.append((url, binary))
                 return "unused fixture"
         with ExitStack() as stack:
-            for name in ["utmb_index", "inview_events", "zui_cards", "member_catalog", "fuji_items", "hk_items", "arc_items", "brand_article_items"]:
+            for name in ["utmb_index", "zui_cards", "member_catalog", "fuji_items", "hk_items", "arc_items", "brand_article_items"]:
                 stack.enter_context(patch.object(source_module, name, return_value=[]))
+            stack.enter_context(patch.object(source_module, "marathon_catalog", return_value=([], {"catalog_pages": 1})))
             collected = source_module.collect(NOW, Client())
         self.assertEqual(collected["registry_count"], 489)
-        directory = next(v for k, v in collected["sources"].items() if k.startswith("caa:directory:"))
-        self.assertFalse(directory["ok"])
-        self.assertEqual(directory["fallback"]["kind"], "verified_snapshot")
+        self.assertFalse(any(binary or url.endswith(".pdf") or url == "https://inview.run/" for url, binary in calls))
+        self.assertFalse(any(k.startswith("caa:directory:") for k in collected["sources"]))
         self.assertNotIn("brand:kailas", collected["sources"])
         self.assertIn("brand:kailas", collected["paused_sources"])
-        _, events = plan({}, collected, NOW)
-        self.assertIn("报名信息仍实时读取", events[0]["payload"]["message"])
 
-    def test_collector_skips_out_of_scope_detail_pages_on_both_marathon_channels(self):
+    def test_collector_skips_out_of_scope_utmb_and_both_zuicool_marathon_lists(self):
         events = [dict(tenant=t, title=t, dateBegin="2027-03-01", continent=c, url=f"https://{t}.utmb.world")
                   for t, c in [("asian", "Asia"), ("montblanc", "Europe"), ("unknown", None)]]
-        rows = [dict(id=f"caa:{i}", name=f"2027{name}马拉松", edition="2027", category="A", province=p)
-                for i, (name, p) in enumerate([("上海", "上海"), ("杭州", "浙江"), ("南京", "江苏"), ("合肥", "安徽"), ("北京", "北京")])]
-        domestic = [dict(id=r["id"], name=r["name"], year="2027", raceMoment="2027-03-01", registration={"opensAt": "2026-11-01"}) for r in rows]
-        cards = [dict(name=r["name"], date="2027-03-01", url=f"https://reg.zuicool.com/{i}", text=r["province"]) for i, r in enumerate(rows)]
+        cards = [dict(name=f"2027{name}马拉松", date="2027-03-01", location=province, url=f"https://reg.zuicool.com/{i}", text=province, status="open")
+                 for i, (name, province) in enumerate([("上海", "上海"), ("杭州", "浙江"), ("南京", "江苏"), ("合肥", "安徽"), ("北京", "北京")])]
         class Client:
             def get(self, *args, **kwargs):
-                return b"unused fixture" if kwargs.get("binary") else "unused fixture"
-        with patch.object(source_module, "utmb_index", return_value=events), \
-             patch.object(source_module, "inview_events", return_value=domestic), \
-             patch.object(source_module, "directory_rows", return_value=rows), \
-             patch.object(source_module, "zui_cards", return_value=cards), \
-             patch.object(source_module, "utmb_event", return_value=[]) as utmb, \
-             patch.object(source_module, "caa_item", return_value=[]) as caa, \
-             patch.object(source_module, "zui_detail", return_value=[]) as zui, \
-             patch.object(source_module, "member_catalog", return_value=[]), \
-             patch.object(source_module, "fuji_items", return_value=[]), \
-             patch.object(source_module, "hk_items", return_value=[]), \
-             patch.object(source_module, "arc_items", return_value=[]), \
-             patch.object(source_module, "brand_article_items", return_value=[]):
-            source_module.collect(NOW, Client())
+                return "unused fixture"
+        with ExitStack() as stack:
+            for name in ["member_catalog", "fuji_items", "hk_items", "arc_items", "brand_article_items"]:
+                stack.enter_context(patch.object(source_module, name, return_value=[]))
+            stack.enter_context(patch.object(source_module, "utmb_index", return_value=events))
+            stack.enter_context(patch.object(source_module, "zui_cards", return_value=cards))
+            stack.enter_context(patch.object(source_module, "marathon_catalog", return_value=(cards, {"catalog_pages": 1})))
+            utmb = stack.enter_context(patch.object(source_module, "utmb_event", return_value=[]))
+            caa = stack.enter_context(patch.object(source_module, "marathon_detail", return_value=[]))
+            collected = source_module.collect(NOW, Client())
         self.assertEqual([c.args[1]["tenant"] for c in utmb.call_args_list], ["asian"])
-        self.assertEqual({c.args[2]["province"] for c in caa.call_args_list}, {"上海", "江苏", "浙江"})
-        self.assertEqual({c.args[2]["province"] for c in zui.call_args_list}, {"上海", "江苏", "浙江"})
+        self.assertEqual({c.args[1]["province"] for c in caa.call_args_list}, {"上海", "江苏", "浙江"})
+        self.assertEqual(collected["marathon_coverage"]["regional_candidates"], 3)
 
     def test_public_wordpress_api_can_recover_a_blocked_official_page(self):
         blocked = requests.Response()

@@ -53,7 +53,7 @@ def display_time(value):
 
 
 def in_scope(item):
-    # Use official catalog geography, never sponsor names or incidental city
+    # Use explicit catalog/detail geography, never sponsor names or incidental city
     # mentions. Unknown geography is held back until it can be verified.
     if item.get("category") == "utmb":
         return clean(item.get("continent")).casefold() == "asia"
@@ -93,6 +93,10 @@ def find_identity(item, known):
         if item.get("series_id") and old.get("series_id") == item["series_id"]:
             return key
         a, b = safe_url(item.get("official")), safe_url(old.get("official"))
+        if item.get("category") == "caa":
+            urls = {safe_url(item.get(k)) for k in ["official", "registration"]} & {safe_url(old.get(k)) for k in ["official", "registration"]}
+            if any(urlsplit(u).hostname == "reg.zuicool.com" and re.fullmatch(r"/\d+/?", urlsplit(u).path) for u in urls if u):
+                return key
         same_page = a and a == b and urlsplit(a).path not in {"", "/"}
         same_date = item.get("date") and item.get("date") == old.get("date")
         other = normalized_name(old.get("name"))
@@ -132,8 +136,9 @@ def item_text(item):
     for key, label in [("brand", "品牌关系"), ("certification", "A类依据")]:
         if item.get(key):
             lines.append(f"{label}：{clean(item[key])}")
-    lines.extend([f"报名入口：{safe_url(item.get('registration')) or clean(item.get('entry_path')) or '待公布，请查看官方原文'}",
-                  f"官方原文：{safe_url(item.get('official')) or safe_url(item.get('source'))}"])
+    source_label = "信息原文（最酷）" if item["category"] == "caa" and urlsplit(safe_url(item.get("official"))).hostname in {"zuicool.com", "reg.zuicool.com"} else "官方原文"
+    lines.extend([f"报名入口：{safe_url(item.get('registration')) or clean(item.get('entry_path')) or '待公布，请查看信息原文'}",
+                  f"{source_label}：{safe_url(item.get('official')) or safe_url(item.get('source'))}"])
     if item.get("evidence") and item["evidence"] != item.get("official"):
         lines.append(f"核验依据：{safe_url(item['evidence'])}")
     return "\n".join(lines)

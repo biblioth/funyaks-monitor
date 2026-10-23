@@ -70,6 +70,7 @@ def plan(state, result, now):
     state.update(sources=current, last_completed_at=now.isoformat(), last_run_date=now.date().isoformat(), run=None,
                  directory_cache=result.get("directory_cache", state.get("directory_cache", {})),
                  paused_sources=result.get("paused_sources", {}),
+                 marathon_coverage=result.get("marathon_coverage", {}),
                  gaps=result.get("gaps", []), registry_count=result.get("registry_count", 0), a_class_count=result.get("a_class_count", 0), review_leads=result.get("review_leads", []))
     return state, events
 
@@ -90,6 +91,7 @@ def execute(store, now, collector=collect):
     state, events = plan(state, result, now)
     store.commit(version, state, events)
     return {"status": "completed", "date": state["last_run_date"], "known": len(state.get("known", {})), "messages": len(events),
+            "marathon_coverage": result.get("marathon_coverage", {}),
             "sources": result["sources"], "registry_count": result.get("registry_count"), "a_class_count": result.get("a_class_count"), "gaps": result.get("gaps", []), "review_leads": result.get("review_leads", [])}
 
 
