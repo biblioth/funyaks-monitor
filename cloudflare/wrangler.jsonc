@@ -45,7 +45,7 @@
     "RETENTION_DAYS": "14",
     "WEEKLY_REPORT_UTC_HOUR": "2",
     "PUSHPLUS_CHANNELS": "wechat,clawbot",
-    "CHAIRMAN_ENABLED": "true",
+    "CHAIRMAN_ENABLED": "false",
     "CHAIRMAN_QUEUE_URL": "https://thechairmangroup.queue-it.net/?c=thechairmangroup&e=chairmanwaitingrmsys",
     "CHAIRMAN_BOOKING_URL": "https://www.thechairmangroup.com/index.php?route=catering/booking",
     "CHAIRMAN_TARGET_DATES": "2026-10-30,2026-10-31,2026-11-01",
