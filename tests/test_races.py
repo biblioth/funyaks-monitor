@@ -141,6 +141,8 @@ class SourceTests(unittest.TestCase):
         directory = next(v for k, v in collected["sources"].items() if k.startswith("caa:directory:"))
         self.assertFalse(directory["ok"])
         self.assertEqual(directory["fallback"]["kind"], "verified_snapshot")
+        self.assertNotIn("brand:kailas", collected["sources"])
+        self.assertIn("brand:kailas", collected["paused_sources"])
         _, events = plan({}, collected, NOW)
         self.assertIn("报名信息仍实时读取", events[0]["payload"]["message"])
 
@@ -300,6 +302,13 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(alerts, [])
         state, alerts = plan(state, result(items=[]), NOW + timedelta(days=3))
         self.assertEqual(alerts[0]["type"], "race_source_recovered")
+
+    def test_pausing_a_blocked_source_is_not_reported_as_a_recovery(self):
+        state = {"sources": {"brand:kailas": {"ok": False}}}
+        collected = dict(result(items=[]), paused_sources={"brand:kailas": {"reason": "user chose partner sources"}})
+        state, alerts = plan(state, collected, NOW)
+        self.assertEqual(alerts, [])
+        self.assertIn("brand:kailas", state["paused_sources"])
 
 
 if __name__ == "__main__":

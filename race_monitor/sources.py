@@ -622,8 +622,7 @@ def collect(now, client=None, directory_cache=None):
             tasks.append((f"utmb:{event['tenant']}", lambda e=event: utmb_event(client, e)))
     tasks.extend([("wtm:fuji", lambda: fuji_items(client)), ("wtm:hk100", lambda: hk_items(client)),
                   ("brand:arcteryx", lambda: arc_items(client)),
-                  ("brand:letour", lambda: brand_article_items(client, "https://www.letoursports.net/", "凯乐石合作赛事（朗途官方发布）", "letour")),
-                  ("brand:kailas", lambda: brand_article_items(client, "https://www.kailas.com.cn/Home/Article/BrandNews/type/1.html", "凯乐石官方发布", "kailas"))])
+                  ("brand:letour", lambda: brand_article_items(client, "https://www.letoursports.net/", "凯乐石合作赛事（朗途官方发布）", "letour"))])
     m = run("wtm:members", lambda: member_catalog(client))
     members.extend(m or [])
     events = run("caa:discovery", lambda: inview_events(client.get(INVIEW_URL)))
@@ -683,4 +682,5 @@ def collect(now, client=None, directory_cache=None):
             except Exception as e:
                 reports[name] = {"ok": False, "error": clean(str(e))[:220], "checked_at": now.isoformat()}
     return {"items": items, "members": members, "sources": reports, "directory_cache": directory_cache, "registry_count": len(registry), "a_class_count": sum(r["category"] == "A" for r in registry),
-            "review_leads": leads, "gaps": ["品牌会员小程序、微信群及仅图片发布的招募尚未接入", "国内赛事发现依赖公开赛历与最酷补漏，未覆盖所有组委会公众号", "WTM总站受限时使用港百／环富士山官方成员清单，成员同步可能延迟"]}
+            "paused_sources": {"brand:kailas": {"since": "2026-10-23", "reason": "官网云端405，按用户选择暂用朗途／最酷补漏"}},
+            "review_leads": leads, "gaps": ["凯乐石官网暂停采集，暂用朗途／最酷补漏，官网独有活动可能遗漏", "品牌会员小程序、微信群及仅图片发布的招募尚未接入", "国内赛事发现依赖公开赛历与最酷补漏，未覆盖所有组委会公众号", "WTM总站受限时使用港百／环富士山官方成员清单，成员同步可能延迟"]}

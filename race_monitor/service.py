@@ -50,7 +50,8 @@ def plan(state, result, now):
     events = digest_events(fresh, now, f"{good}/{len(current)}")
     events += member_events(state, result["members"], now)
     failed = {k: v for k, v in current.items() if not v["ok"]}
-    old_failed = {k for k, v in previous_sources.items() if not v["ok"]}
+    # A removed/paused source is a coverage gap, never a successful recovery.
+    old_failed = {k for k, v in previous_sources.items() if not v["ok"] and k in current}
     signature = hashlib.sha256(json.dumps(sorted(failed)).encode()).hexdigest()[:16]
     if failed and set(failed) != old_failed:
         lines = [f"⚠️ 赛事监控部分来源无法读取｜{now:%Y-%m-%d}", f"成功 {good}/{len(current)} 个来源；受影响信息未能核实。"]
@@ -65,9 +66,10 @@ def plan(state, result, now):
         events.append({"key": f"races:degraded:{now:%Y%m%d}:{signature}", "type": "race_source_degraded", "payload": {"message": message}})
     elif not failed and old_failed:
         events.append({"key": f"races:recovered:{now:%Y%m%d}", "type": "race_source_recovered",
-                       "payload": {"message": f"✅ 赛事监控覆盖已恢复\n核验时间：{now:%Y-%m-%d %H:%M}（北京时间）\n本轮 {good}/{len(current)} 个已启用来源读取成功。"}})
+                       "payload": {"message": f"✅ 赛事监控已启用来源恢复正常\n核验时间：{now:%Y-%m-%d %H:%M}（北京时间）\n本轮 {good}/{len(current)} 个已启用来源读取成功；暂停来源及未接入渠道的覆盖缺口仍保留。"}})
     state.update(sources=current, last_completed_at=now.isoformat(), last_run_date=now.date().isoformat(), run=None,
                  directory_cache=result.get("directory_cache", state.get("directory_cache", {})),
+                 paused_sources=result.get("paused_sources", {}),
                  gaps=result.get("gaps", []), registry_count=result.get("registry_count", 0), a_class_count=result.get("a_class_count", 0), review_leads=result.get("review_leads", []))
     return state, events
 
